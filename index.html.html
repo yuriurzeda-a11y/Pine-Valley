@@ -1,0 +1,1852 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Pine Valley</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
+    font-family: 'Courier New', monospace; background: #1a1a2e; color: #eee;
+  }
+  h1 {
+    position: absolute; top: 6px; left: 10px; margin: 0; z-index: 6;
+    font-size: 14px; letter-spacing: 1px; color: #ffd166; text-shadow: 2px 2px 0 #000; pointer-events: none;
+  }
+  #gameWrap {
+    position: fixed; inset: 0; width: 100vw; height: 100vh;
+    touch-action: none;
+  }
+  canvas { display: block; cursor: grab; width: 100%; height: 100%; }
+  canvas.dragging { cursor: grabbing; }
+  #joystickBase {
+    position: absolute; width: 90px; height: 90px; border-radius: 50%;
+    background: rgba(255,255,255,0.12); border: 2px solid rgba(255,255,255,0.4);
+    display: none; pointer-events: none; transform: translate(-50%,-50%);
+  }
+  #joystickThumb {
+    position: absolute; width: 40px; height: 40px; border-radius: 50%;
+    background: rgba(255,209,102,0.85); top: 50%; left: 50%;
+    transform: translate(-50%,-50%); pointer-events: none;
+  }
+  .touchBtn {
+    position: absolute; border-radius: 50%; background: rgba(255,209,102,0.85); color:#1a1a2e;
+    border: 2px solid rgba(0,0,0,0.4); font-weight: bold; font-family: inherit; font-size: 13px;
+    display: none; align-items: center; justify-content: center; user-select: none; -webkit-user-select: none;
+  }
+  #btnInteract { width: 68px; height: 68px; right: 40px; bottom: 146px; font-size: 12px; }
+  #btnJump { width: 56px; height: 56px; right: 120px; bottom: 140px; font-size: 22px; }
+  #btnRun { width: 56px; height: 56px; right: 120px; bottom: 206px; font-size: 22px; }
+  #btnRun.active { background: rgba(239,108,108,0.9); }
+  #btnCamera { width: 52px; height: 52px; right: 48px; bottom: 232px; font-size: 20px; }
+  .touch-device #joystickBase, .touch-device .touchBtn { display: flex; }
+  .touch-device #camHint { display: none; }
+  #hud {
+    position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: space-between;
+    padding: 6px 10px; background: rgba(20,20,30,0.75); font-size: 11px; border-bottom: 2px solid #000; pointer-events: none;
+  }
+  #hud div span { color: #ffd166; }
+  .skillbar-row { display:flex; gap:7px; flex-wrap: wrap; justify-content: flex-end; }
+  .sb { display:flex; align-items:center; gap:3px; }
+  .sb-track { width:44px; height:7px; background:#333; border:1px solid #000; }
+  .sb-fill { height:100%; background:#f5a742; }
+  .sb-fill.con { background:#9ccc65; }
+  .sb-fill.rob { background:#4dd0e1; }
+  .sb-fill.vida { background:#ef6c6c; }
+  .sb-fill.fome { background:#e0a642; }
+  #prompt {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.8); padding: 6px 14px; border: 1px solid #ffd166;
+    font-size: 12px; display: none; pointer-events: none;
+  }
+  #areaTag {
+    position: absolute; top: 30px; left: 10px; background: rgba(0,0,0,0.6);
+    padding: 4px 10px; font-size: 11px; color: #ffd166; display:none; pointer-events:none;
+  }
+  #camHint {
+    position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.6);
+    padding: 4px 10px; font-size: 11px; color: #aaa; pointer-events: none;
+  }
+  #subtitle {
+    position: absolute; top: 34px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.82); border: 1px solid #4dd0e1; padding: 8px 16px;
+    font-size: 12px; text-align: center; display: none; max-width: 480px; pointer-events: none;
+  }
+  #stageHud {
+    position: absolute; top: 90px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.75); border: 1px solid #ffd166; padding: 8px 16px;
+    font-size: 13px; text-align: center; display: none; min-width: 320px;
+  }
+  #stageHud .seq span { opacity: 1; font-size: 20px; margin: 0 2px; }
+  #stageHud .seq span.done { opacity: 0.25; }
+  #modalOverlay {
+    position: absolute; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.75);
+    display: none; align-items: center; justify-content: center;
+  }
+  #modalBox {
+    background: #23233a; border: 3px solid #ffd166; padding: 18px 20px;
+    width: 460px; max-height: 460px; overflow-y: auto; font-size: 13px;
+  }
+  #modalBox h2 { margin-top:0; color:#ffd166; font-size:16px; }
+  #modalBox button, .stageBtn {
+    font-family: inherit; background: #ffd166; color: #1a1a2e; border: none;
+    padding: 8px 12px; margin: 4px 4px 0 0; cursor: pointer; font-size: 12px; font-weight: bold;
+  }
+  #modalBox button:hover { background: #ffe08a; }
+  #modalBox button:disabled { background:#555; color:#999; cursor:not-allowed; }
+  #modalBox .closeBtn { background:#ef6c6c; }
+  #modalBox .item { border-bottom: 1px solid #3a3a55; padding: 8px 0; }
+  #modalBox .note { color:#aaa; font-size:11px; }
+  #introOverlay {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+    justify-content: flex-end; padding-bottom: 14%; pointer-events: none; z-index: 8;
+  }
+  #introTitle {
+    color: #ffd166; font-size: 34px; letter-spacing: 3px; text-shadow: 3px 3px 0 #000; margin-bottom: 8px;
+  }
+  #introSubtitle { color: #fff; font-size: 14px; background: rgba(0,0,0,0.6); padding: 5px 14px; }
+  #btnSkipIntro {
+    position: absolute; bottom: 16px; right: 16px; z-index: 9; font-family: inherit;
+    background: rgba(0,0,0,0.65); color: #fff; border: 1px solid #fff; padding: 8px 14px;
+    font-size: 12px; cursor: pointer;
+  }
+  #toast {
+    position: absolute; top: 40px; left: 50%; transform: translateX(-50%);
+    background: #ffd166; color: #1a1a2e; padding: 8px 16px; font-size: 13px;
+    font-weight: bold; display: none; border: 2px solid #000;
+  }
+  #controls { display: none; }
+</style>
+</head>
+<body>
+
+<h1>🌲 PINE VALLEY</h1>
+
+<div id="gameWrap">
+  <div id="hud">
+    <div>🕐 <span id="hudTime">06:00</span> · Dia <span id="hudDay">1</span> · 💰 R$<span id="hudMoney">0</span> · <span id="hudJob" style="color:#ffd166">Atendente</span></div>
+    <div class="skillbar-row">
+      <div class="sb">❤️ <div class="sb-track"><div class="sb-fill vida" id="barVida" style="width:100%"></div></div></div>
+      <div class="sb">🍗 <div class="sb-track"><div class="sb-fill fome" id="barFome" style="width:100%"></div></div></div>
+      <div class="sb">Culin. <div class="sb-track"><div class="sb-fill" id="barCulinaria" style="width:0%"></div></div></div>
+      <div class="sb">Constr. <div class="sb-track"><div class="sb-fill con" id="barConstrucao" style="width:0%"></div></div></div>
+      <div class="sb">Robót. <div class="sb-track"><div class="sb-fill rob" id="barRobotica" style="width:0%"></div></div></div>
+    </div>
+  </div>
+  <div id="areaTag">Dentro: <span id="areaTagText"></span></div>
+  <div id="prompt"></div>
+  <div id="subtitle"></div>
+  <div id="camHint">C — trocar câmera · botão direito do mouse — olhar ao redor</div>
+  <div id="introOverlay">
+    <div id="introTitle">🌲 Pine Valley</div>
+    <div id="introSubtitle">Chegando na cidade...</div>
+  </div>
+  <button id="btnSkipIntro">Pular introdução ⏭️</button>
+  <div id="toast"></div>
+  <div id="stageHud"></div>
+  <div id="modalOverlay"><div id="modalBox"></div></div>
+  <div id="joystickBase"><div id="joystickThumb"></div></div>
+  <button id="btnInteract" class="touchBtn">E<br>agir</button>
+  <button id="btnJump" class="touchBtn">⬆️</button>
+  <button id="btnRun" class="touchBtn">🏃</button>
+  <button id="btnCamera" class="touchBtn">🔄</button>
+</div>
+
+<div id="controls">Setas / WASD para andar · E para interagir/conversar · C para trocar câmera</div>
+
+<script>
+/* ================= ESTADO ================= */
+let orderState = null, decisionState = null, quizState = null;
+let joystickVec = { x: 0, y: 0 };
+let introActive = true, introT = 0, introCar = null;
+const INTRO_DURATION = 6.5;
+let playerHitCooldown = 0;
+let playerVelocityY = 0;
+const JUMP_FORCE = 6.2, GRAVITY = 18;
+let touchRunning = false;
+const BASE_SPEED = 5.8, RUN_MULTIPLIER = 1.7, RUN_FOME_EXTRA_PER_SEC = 0.5;
+let playerKnockElapsed = Infinity;
+let currentArea = "town";
+let nearBuilding = null, nearHotspot = null, nearPedestrian = null;
+let modalOpen = false, minigameMode = null;
+
+const state = {
+  day: 1, money: 40, jobTier: 0, daysAtJob: 0,
+  skills: { culinaria: 0, construcao: 0, robotica: 0 },
+  workedToday: false,
+  saude: 100, fome: 100,
+};
+
+const jobTiers = [
+  { title: "Atendente de Hamburgueria", building: "lanchonete", pay: 40, skill: "culinaria", req: { days: 4, culinaria: 30 } },
+  { title: "Chefe de Obras",            building: "construtora", pay: 130, skill: "construcao", req: { days: 6, construcao: 55 } },
+  { title: "Dono da Robotics Valley",   building: "robotics",    pay: 320, skill: "robotica", req: null },
+];
+
+const COURSES = [
+  { name: "Curso de Técnicas Culinárias", cost: 60, skill: "culinaria" },
+  { name: "Curso de Gestão de Obras",     cost: 100, skill: "construcao" },
+  { name: "Curso de Robótica Aplicada",   cost: 160, skill: "robotica" },
+];
+
+const QUIZ_BANKS = {
+  culinaria: [
+    { q: "Qual técnica sela a carne e mantém os sucos por dentro?", opts: ["Selar em fogo alto","Cozinhar em fogo baixo o tempo todo","Congelar antes de fritar"], correct: 0 },
+    { q: "Qual é a base de um molho bechamel?", opts: ["Leite e farinha","Tomate e manjericão","Ovos e limão"], correct: 0 },
+    { q: "Temperatura aproximada pra assar a maioria das carnes no forno?", opts: ["180°C","80°C","300°C"], correct: 0 },
+    { q: "O que significa 'mise en place' na cozinha?", opts: ["Organizar os ingredientes antes de cozinhar","Servir o prato no final","Lavar a louça depois"], correct: 0 },
+    { q: "Qual desses é um método de cocção a seco?", opts: ["Assar","Cozinhar no vapor","Escaldar"], correct: 0 },
+  ],
+  construcao: [
+    { q: "Qual material é a base do concreto?", opts: ["Cimento, areia e brita","Madeira e cola","Vidro e aço apenas"], correct: 0 },
+    { q: "O que é uma planta baixa?", opts: ["Um desenho técnico visto de cima","Um tipo de jardim","Uma ferramenta de corte"], correct: 0 },
+    { q: "Qual equipamento de segurança é obrigatório em obras?", opts: ["Capacete","Boné","Tênis comum"], correct: 0 },
+    { q: "O que significa a sigla 'ART' na construção civil?", opts: ["Anotação de Responsabilidade Técnica","Área de Reforma Total","Ajuste de Recursos Técnicos"], correct: 0 },
+    { q: "Qual é a função da fundação de um prédio?", opts: ["Sustentar e distribuir o peso da construção","Decorar a fachada","Isolar o som"], correct: 0 },
+  ],
+  robotica: [
+    { q: "O que é um sensor em um robô?", opts: ["Um componente que capta informações do ambiente","Um tipo de bateria","Uma peça decorativa"], correct: 0 },
+    { q: "Qual linguagem é muito usada em programação de robôs?", opts: ["Python","HTML","CSS"], correct: 0 },
+    { q: "O que faz um atuador em um robô?", opts: ["Produz movimento a partir de energia","Armazena dados","Mede temperatura apenas"], correct: 0 },
+    { q: "O que significa a sigla 'IA' aplicada à robótica?", opts: ["Inteligência Artificial","Instalação Automática","Interface Analógica"], correct: 0 },
+    { q: "Qual é a função de um microcontrolador em um robô?", opts: ["Processar comandos e controlar componentes","Gerar eletricidade do zero","Substituir os sensores"], correct: 0 },
+  ],
+};
+
+const EMPLOYEE_SCENARIOS = {
+  construtora: [
+    { employee: "Carlos, pedreiro", line: "Trabalho aqui há meses e ainda ganho o mesmo. Dá pra rever meu salário?",
+      options: [ { label: "Conceder um aumento justo", score: 90 }, { label: "Negar sem justificar", score: 20 }, { label: "Prometer avaliar no próximo mês", score: 55 } ] },
+    { employee: "Marta, engenheira", line: "O prazo da obra está apertado e a equipe está sobrecarregada.",
+      options: [ { label: "Contratar reforço temporário", score: 85 }, { label: "Pedir pra equipe fazer hora extra", score: 45 }, { label: "Ignorar e manter o prazo", score: 15 } ] },
+    { employee: "João, mestre de obras", line: "Parabéns pela obra do mês passado, ficou ótima!",
+      options: [ { label: "Agradecer e elogiar o time também", score: 95 }, { label: "Aceitar o elogio sem comentar", score: 60 }, { label: "Dizer que podia ser melhor", score: 25 } ] },
+    { employee: "Renata, arquiteta", line: "Podemos usar um material mais sustentável no próximo projeto?",
+      options: [ { label: "Aprovar e revisar o orçamento", score: 88 }, { label: "Dizer que vai pensar depois", score: 50 }, { label: "Recusar por causa do custo", score: 22 } ] },
+    { employee: "Pedro, operário", line: "Alguns equipamentos de segurança estão desgastados.",
+      options: [ { label: "Trocar os equipamentos imediatamente", score: 98 }, { label: "Trocar só quando quebrar de vez", score: 30 }, { label: "Ignorar, ainda dá pra usar", score: 5 } ] },
+  ],
+  robotics: [
+    { employee: "Ana, engenheira de software", line: "Estou entregando ótimos resultados, acho que mereço um aumento.",
+      options: [ { label: "Conceder aumento e reconhecer o mérito", score: 92 }, { label: "Negar sem dar retorno", score: 18 }, { label: "Oferecer bônus em vez de aumento fixo", score: 65 } ] },
+    { employee: "Lucas, técnico de robótica", line: "O protótipo está com falha no sensor, isso vai atrasar a entrega.",
+      options: [ { label: "Dar mais tempo pra corrigir com calma", score: 80 }, { label: "Exigir entrega no prazo mesmo com o bug", score: 20 }, { label: "Trazer um especialista externo", score: 90 } ] },
+    { employee: "Bia, designer de produto", line: "O novo design do robô doméstico ficou show, adorei esse projeto!",
+      options: [ { label: "Elogiar o trabalho publicamente", score: 95 }, { label: "Só agradecer rapidamente", score: 60 }, { label: "Não comentar nada", score: 20 } ] },
+    { employee: "Rafael, estagiário", line: "Posso propor uma ideia nova pro próximo robô?",
+      options: [ { label: "Ouvir a ideia com atenção", score: 90 }, { label: "Dizer que não há tempo agora", score: 35 }, { label: "Pedir pra ele mandar por e-mail", score: 60 } ] },
+    { employee: "Sofia, gerente de produção", line: "Estamos gastando mais que o previsto com peças importadas.",
+      options: [ { label: "Buscar fornecedores nacionais", score: 85 }, { label: "Cortar outros custos pra compensar", score: 55 }, { label: "Ignorar e manter como está", score: 15 } ] },
+  ],
+};
+
+const PEDESTRIAN_LINES = [
+  "Bom dia! Lindo dia em Pine Valley, não acha?",
+  "Oi! Você não é novo por aqui?",
+  "Com licença, preciso ir trabalhar.",
+  "Boa tarde! O clima está ótimo hoje.",
+  "Oi, tudo bem? Preciso ir andando.",
+  "Já foi na lanchonete nova? Dizem que é boa.",
+  "Cuidado com os carros nessa rua!",
+  "Ei, você trabalha em qual lugar?",
+];
+
+const INGREDIENTS = [
+  { key: "bread",   emoji: "🍞", color: 0xdaa15c },
+  { key: "patty",   emoji: "🥩", color: 0x7a4a33 },
+  { key: "cheese",  emoji: "🧀", color: 0xf5d547 },
+  { key: "bacon",   emoji: "🥓", color: 0xb5573f },
+  { key: "lettuce", emoji: "🥬", color: 0x6fbf4f },
+  { key: "tomato",  emoji: "🍅", color: 0xe5533d },
+  { key: "onion",   emoji: "🧅", color: 0xb98fc9 },
+  { key: "egg",     emoji: "🍳", color: 0xf7e089 },
+];
+const RECIPES = [
+  { name: "X-Simples", seq: ["bread","patty","bread"] },
+  { name: "X-Burger",  seq: ["bread","patty","cheese","bread"] },
+  { name: "X-Cebola",  seq: ["bread","patty","cheese","onion","bread"] },
+  { name: "X-Bacon",   seq: ["bread","patty","bacon","cheese","bread"] },
+  { name: "X-Egg",     seq: ["bread","patty","egg","cheese","bread"] },
+  { name: "X-Duplo",   seq: ["bread","patty","patty","cheese","bread"] },
+  { name: "X-Salada",  seq: ["bread","patty","cheese","lettuce","tomato","bread"] },
+  { name: "X-Especial",seq: ["bread","egg","bacon","cheese","lettuce","bread"] },
+  { name: "X-Tudo",    seq: ["bread","patty","bacon","cheese","lettuce","tomato","onion","bread"] },
+];
+const CUSTOMER_PRAISE = ["Aí sim, ficou show!", "Mandou muito bem, valeu!", "Nossa, ficou demais esse lanche!", "Show, sempre volto aqui!", "Ficou top, parabéns!"];
+const CUSTOMER_MEH = ["Podia ser bem melhor, hein...", "Acho que faltou alguma coisa aí...", "Tá ok, mas não era bem isso não."];
+const CUSTOMER_ANGRY = ["Cara, não foi isso que eu pedi!", "Errou tudo o meu pedido, sério?", "Vou falar com o gerente sobre isso!", "Que isso, nem perto do que eu pedi!"];
+
+/* ================= PRÉDIOS ================= */
+const buildingsData = [
+  { id: "home",        label: "Sua Casa",             x: -24, z: -6, w: 7,  d: 6, h: 5,   color: 0x8d6748, roof: 0x5c3d24, door: 0x4a90d9, locked: false },
+  { id: "lanchonete",  label: "Lanchonete Sabor Rápido", x: -8, z: -6, w: 9,  d: 7, h: 5.5, color: 0xe05353, roof: 0x8c1f1f, door: 0xffd166, locked: false },
+  { id: "construtora", label: "Construtora Pine Valley", x: 10, z: -6, w: 9,  d: 7, h: 6,   color: 0xc9a63e, roof: 0x7a611f, door: 0x2e7d32, locked: true },
+  { id: "robotics",    label: "Robotics Valley HQ",    x: 10, z: -28, w: 12, d: 9, h: 8,   color: 0x4a4a6a, roof: 0x2b2b40, door: 0x4dd0e1, locked: true },
+  { id: "mercado",     label: "Mercadinho",            x: 30, z: -6, w: 7,  d: 6, h: 4.6, color: 0xe07a9c, roof: 0x8a4a5c, door: 0x66bb6a, locked: false },
+  { id: "hospital",    label: "Hospital de Pine Valley", x: 30, z: -28, w: 10, d: 8, h: 6,  color: 0xf2f2f2, roof: 0xe0546a, door: 0x1976d2, locked: false },
+];
+function buildingUnlocked(id) {
+  if (id === "construtora") return state.jobTier >= 1;
+  if (id === "robotics") return state.jobTier >= 2;
+  return true;
+}
+function findBuilding(id) { return buildingsData.find(b => b.id === id); }
+
+/* ================= THREE.JS SETUP ================= */
+const wrap = document.getElementById("gameWrap");
+let W = wrap.clientWidth || 800, H = wrap.clientHeight || 500;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x8fd0f0);
+scene.fog = new THREE.Fog(0x8fd0f0, 35, 130);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(W, H);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+wrap.insertBefore(renderer.domElement, wrap.firstChild);
+
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+scene.add(ambientLight);
+const sun = new THREE.DirectionalLight(0xfff3d6, 0.9);
+sun.position.set(30, 40, 10);
+scene.add(sun);
+
+/* ---------- textura pixel art simples (nearest filter) ---------- */
+function makePixelTexture(baseColor, accentColor, size, repeat) {
+  const canvas = document.createElement("canvas");
+  canvas.width = size; canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = baseColor; ctx.fillRect(0, 0, size, size);
+  ctx.fillStyle = accentColor;
+  for (let i = 0; i < size; i++) for (let j = 0; j < size; j++) {
+    if ((i + j) % 3 === 0) ctx.fillRect(i, j, 1, 1);
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.magFilter = THREE.NearestFilter; tex.minFilter = THREE.NearestFilter;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeat, repeat);
+  return tex;
+}
+const grassTex = makePixelTexture("#7cb95f", "#6aa84f", 8, 70);
+const roadTex = makePixelTexture("#777777", "#6a6a6a", 6, 90);
+
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), new THREE.MeshLambertMaterial({ map: grassTex }));
+ground.rotation.x = -Math.PI / 2;
+scene.add(ground);
+
+const roadMat = new THREE.MeshLambertMaterial({ map: roadTex });
+const road1 = new THREE.Mesh(new THREE.PlaneGeometry(240, 6), roadMat);
+road1.rotation.x = -Math.PI/2; road1.position.set(0, 0.01, 9);
+scene.add(road1);
+const road2 = new THREE.Mesh(new THREE.PlaneGeometry(6, 240), roadMat);
+road2.rotation.x = -Math.PI/2; road2.position.set(20.5, 0.02, -17);
+scene.add(road2);
+
+/* pista de carros (loop no perímetro) */
+const CAR_LOOP = [ { x: -46, z: -46 }, { x: 46, z: -46 }, { x: 46, z: 46 }, { x: -46, z: 46 } ];
+function addRoadSeg(x1, z1, x2, z2) {
+  const len = Math.hypot(x2 - x1, z2 - z1);
+  const seg = new THREE.Mesh(new THREE.PlaneGeometry(len, 6), roadMat);
+  seg.rotation.x = -Math.PI / 2;
+  if (Math.abs(z1 - z2) > 0.01) seg.rotation.z = Math.PI / 2;
+  seg.position.set((x1 + x2) / 2, 0.015, (z1 + z2) / 2);
+  scene.add(seg);
+}
+for (let i = 0; i < CAR_LOOP.length; i++) {
+  const a = CAR_LOOP[i], b = CAR_LOOP[(i + 1) % CAR_LOOP.length];
+  addRoadSeg(a.x, a.z, b.x, b.z);
+}
+
+/* ---------- helpers ---------- */
+function boxMesh(w, h, d, color) {
+  return new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshLambertMaterial({ color }));
+}
+function makeTextSprite(text, opts = {}) {
+  const { fontsize = 64, color = "#ffffff", bg = "rgba(0,0,0,0.55)", scale = 3, pad = 20 } = opts;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  ctx.font = `bold ${fontsize}px sans-serif`;
+  const metrics = ctx.measureText(text);
+  canvas.width = Math.ceil(metrics.width) + pad * 2;
+  canvas.height = fontsize + pad * 2;
+  ctx.font = `bold ${fontsize}px sans-serif`;
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = color; ctx.textBaseline = "middle"; ctx.textAlign = "center";
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 2);
+  const tex = new THREE.CanvasTexture(canvas); tex.needsUpdate = true;
+  const mat = new THREE.SpriteMaterial({ map: tex, depthTest: true, depthWrite: false });
+  const sprite = new THREE.Sprite(mat);
+  const aspect = canvas.width / canvas.height;
+  sprite.scale.set(scale * aspect, scale, 1);
+  sprite.userData.canvas = canvas; sprite.userData.ctx = ctx; sprite.userData.opts = opts;
+  return sprite;
+}
+function updateTextSprite(sprite, text) {
+  const { fontsize = 64, color = "#ffffff", bg = "rgba(0,0,0,0.55)" } = sprite.userData.opts;
+  const canvas = sprite.userData.canvas, ctx = sprite.userData.ctx;
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = bg; ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = color; ctx.textBaseline="middle"; ctx.textAlign="center";
+  ctx.font = `bold ${fontsize}px sans-serif`;
+  ctx.fillText(text, canvas.width/2, canvas.height/2 + 2);
+  sprite.material.map.needsUpdate = true;
+}
+function createPersonBust(skinColor, hairColor, shirtColor) {
+  const g = new THREE.Group();
+  const shoulders = new THREE.Mesh(new THREE.CylinderGeometry(0.55,0.65,0.6,12), new THREE.MeshLambertMaterial({ color: shirtColor, transparent: true, opacity: 0 }));
+  shoulders.position.y = -0.7; g.add(shoulders);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.5,12,12), new THREE.MeshLambertMaterial({ color: skinColor, transparent: true, opacity: 0 }));
+  g.add(head);
+  const hair = new THREE.Mesh(new THREE.SphereGeometry(0.53,12,12,0,Math.PI*2,0,Math.PI*0.5), new THREE.MeshLambertMaterial({ color: hairColor, transparent: true, opacity: 0 }));
+  hair.position.y = 0.1; g.add(hair);
+  return g;
+}
+function setGroupOpacity(group, val) {
+  group.traverse(obj => { if (obj.material) obj.material.opacity = val; });
+}
+
+/* ---------- voz + legenda ---------- */
+let ptVoice = null;
+function loadPtVoice() {
+  if (!("speechSynthesis" in window)) return;
+  const voices = window.speechSynthesis.getVoices();
+  ptVoice = voices.find(v => v.lang === "pt-BR")
+    || voices.find(v => v.lang && v.lang.toLowerCase().startsWith("pt"))
+    || null;
+}
+if ("speechSynthesis" in window) {
+  loadPtVoice();
+  window.speechSynthesis.onvoiceschanged = loadPtVoice;
+}
+function speak(text, opts = {}) {
+  try {
+    if (!("speechSynthesis" in window)) return;
+    if (!ptVoice) loadPtVoice(); // tenta de novo caso as vozes só tenham carregado agora
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "pt-BR";
+    if (ptVoice) u.voice = ptVoice;
+    u.pitch = opts.pitch || 1;
+    u.rate = opts.rate || 0.95;
+    window.speechSynthesis.speak(u);
+  } catch (err) { console.error("Erro de voz:", err); }
+}
+/* ---------- barulinho "pi pi pi" (Web Audio, sem precisar de arquivo) ---------- */
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (err) { audioCtx = null; }
+  }
+  return audioCtx;
+}
+function playBlip(freq) {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  try {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "square";
+    osc.frequency.value = freq;
+    gain.gain.value = 0.06;
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.start();
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
+    osc.stop(ctx.currentTime + 0.06);
+  } catch (err) { console.error("Erro no blip:", err); }
+}
+
+function say(speaker, text, voiceOpts) {
+  const el = document.getElementById("subtitle");
+  el.style.display = "block";
+  clearTimeout(say._h);
+  clearInterval(say._typeInterval);
+  const prefix = `<b>${speaker}:</b> `;
+
+  // texto aparecendo aos poucos com "pi pi pi"
+  const baseFreq = (voiceOpts && voiceOpts.pitch ? voiceOpts.pitch : 1) * 420;
+  let i = 0;
+  el.innerHTML = prefix;
+  say._typeInterval = setInterval(() => {
+    i++;
+    el.innerHTML = prefix + text.slice(0, i);
+    const ch = text[i - 1];
+    if (ch && ch !== " " && i % 2 === 0) playBlip(baseFreq + Math.random() * 160);
+    if (i >= text.length) {
+      clearInterval(say._typeInterval);
+      say._h = setTimeout(() => el.style.display = "none", 1800);
+    }
+  }, 35);
+}
+
+/* ---------- prédios (exterior) ---------- */
+const buildingMeshes = {};
+for (const b of buildingsData) {
+  const g = new THREE.Group();
+  const bodyM = boxMesh(b.w, b.h, b.d, b.color);
+  bodyM.position.y = b.h/2; g.add(bodyM);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.max(b.w,b.d)*0.75, 2.6, 4), new THREE.MeshLambertMaterial({ color: b.roof }));
+  roof.rotation.y = Math.PI/4; roof.position.y = b.h + 1.3; g.add(roof);
+  const door = boxMesh(2.0, 2.6, 0.15, b.door);
+  door.position.set(0, 1.3, b.d/2 - 0.05); g.add(door);
+  const label = makeTextSprite(b.label, { fontsize: 38, scale: 2.5, color:"#fff" });
+  label.position.set(0, b.h + 3.2, 0); g.add(label);
+  g.position.set(b.x, 0, b.z);
+  scene.add(g);
+  buildingMeshes[b.id] = { group: g, body: bodyM, roof, door, label, data: b };
+}
+function refreshLockedVisuals() {
+  ["construtora", "robotics"].forEach(id => {
+    const b = buildingMeshes[id];
+    const unlocked = buildingUnlocked(id);
+    b.body.material.color.set(unlocked ? b.data.color : 0x2a2a35);
+    b.roof.material.color.set(unlocked ? b.data.roof : 0x1a1a22);
+    b.door.material.color.set(unlocked ? b.data.door : 0x111111);
+    updateTextSprite(b.label, unlocked ? b.data.label : "🔒 Bloqueado");
+  });
+}
+refreshLockedVisuals();
+
+/* ---------- estacionamento da ambulância (atrás do hospital) ---------- */
+const parkingPad = new THREE.Mesh(new THREE.PlaneGeometry(6.5, 5.5), new THREE.MeshLambertMaterial({ color: 0x4a4a4a }));
+parkingPad.rotation.x = -Math.PI / 2;
+parkingPad.position.set(30, 0.015, -40);
+scene.add(parkingPad);
+const parkingLineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+[-2, 0, 2].forEach(offset => {
+  const line = new THREE.Mesh(new THREE.PlaneGeometry(0.15, 4.6), parkingLineMat);
+  line.rotation.x = -Math.PI / 2;
+  line.position.set(30 + offset, 0.02, -40);
+  scene.add(line);
+});
+const parkingSign = makeTextSprite("🚑 Estacionamento", { fontsize: 32, scale: 1.8, color: "#fff" });
+parkingSign.position.set(30, 3.2, -40);
+scene.add(parkingSign);
+function buildAmbulanceMesh() {
+  const g = new THREE.Group();
+  const body = boxMesh(2.2, 1.3, 4.2, 0xffffff); body.position.y = 0.85; g.add(body);
+  const cabin = boxMesh(1.9, 0.7, 1.6, 0xdcdcdc); cabin.position.set(0, 1.6, 1.2); g.add(cabin);
+  const crossV = boxMesh(0.32, 0.7, 0.06, 0xe0546a); crossV.position.set(0, 0.9, -2.11); g.add(crossV);
+  const crossH = boxMesh(0.7, 0.32, 0.06, 0xe0546a); crossH.position.set(0, 0.9, -2.11); g.add(crossH);
+  [[-1,-1.6],[1,-1.6],[-1,1.6],[1,1.6]].forEach(([wx,wz]) => {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.42,0.3,10), new THREE.MeshLambertMaterial({ color: 0x111111 }));
+    wheel.rotation.x = Math.PI/2; wheel.position.set(wx,0.42,wz); g.add(wheel);
+  });
+  return g;
+}
+const ambulance = buildAmbulanceMesh();
+ambulance.position.set(30, 0, -40);
+ambulance.rotation.y = Math.PI / 2;
+scene.add(ambulance);
+
+/* ---------- casas decorativas (só cenário, sem interior) ---------- */
+const decorativeBuildings = [];
+decorativeBuildings.push({ x: 30, z: -40, w: 4.4, d: 2.6 }); // colisão da ambulância (girada 90°: comprimento vira largura em X)
+const DECOR_COLORS = [0xcf9a6b, 0xa8c8e0, 0xd9b3c9, 0xb8d4a0, 0xe0c68a, 0x9fb8c9];
+for (let i = 0; i < 7; i++) {
+  let x = -32 + i * 11;
+  const z = 22 + (i % 2 === 0 ? 0 : 4);
+  const w = 5.5, d = 5, h = 3.8;
+  if (x + w/2 > 17.5 && x - w/2 < 23.5) x = 27.5; // afasta da faixa da rua vertical, com espaço das vizinhas
+  decorativeBuildings.push({ x, z, w, d });
+  const g = new THREE.Group();
+  const body = boxMesh(w, h, d, DECOR_COLORS[i % DECOR_COLORS.length]);
+  body.position.y = h/2; g.add(body);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(4.2, 2, 4), new THREE.MeshLambertMaterial({ color: 0x6b4a35 }));
+  roof.rotation.y = Math.PI/4; roof.position.y = h + 1; g.add(roof);
+  g.position.set(x, 0, z);
+  scene.add(g);
+}
+
+/* ---------- pedestres ---------- */
+const PED_PATHS = [
+  { a: { x: -30, z: 4 },  b: { x: 22, z: 4 } },
+  { a: { x: 22, z: -14 }, b: { x: -30, z: -14 } },
+  { a: { x: -8, z: 18 },  b: { x: 12, z: 18 } },
+];
+const PED_COLORS = [0x66aacc, 0xef9b6c, 0x8dd18d];
+const pedestrians = [];
+PED_PATHS.forEach((path, i) => {
+  const g = new THREE.Group();
+  const visual = new THREE.Group();
+  g.add(visual);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,1.5,8), new THREE.MeshLambertMaterial({ color: PED_COLORS[i % PED_COLORS.length] }));
+  body.position.y = 0.9; visual.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.4,8,8), new THREE.MeshLambertMaterial({ color: 0xf2c49b }));
+  head.position.y = 1.85; visual.add(head);
+  g.position.set(path.a.x, 0, path.a.z);
+  scene.add(g);
+  pedestrians.push({
+    mesh: g, visual, a: new THREE.Vector3(path.a.x,0,path.a.z), b: new THREE.Vector3(path.b.x,0,path.b.z),
+    t: 0, dir: 1, speed: 0.045, paused: false, talking: false, walkPhase: Math.random() * 10, hitCooldown: 0,
+  });
+});
+function updatePedestrians(delta) {
+  for (const p of pedestrians) {
+    if (p.knockElapsed === undefined) p.knockElapsed = Infinity;
+    if (p.knockElapsed < KNOCKDOWN_DURATION) {
+      p.knockElapsed += delta;
+      p.visual.rotation.x = knockdownAngle(p.knockElapsed, KNOCKDOWN_DURATION);
+      p.visual.position.y = 0;
+      continue;
+    } else if (p.visual.rotation.x !== 0) {
+      p.visual.rotation.x = 0;
+    }
+    if (p.paused) { p.visual.position.y = 0; continue; }
+    p.t += p.dir * delta * p.speed;
+    if (p.t >= 1) { p.t = 1; p.dir = -1; }
+    if (p.t <= 0) { p.t = 0; p.dir = 1; }
+    p.mesh.position.lerpVectors(p.a, p.b, p.t);
+    const target = p.dir > 0 ? p.b : p.a;
+    if (Math.abs(target.x - p.mesh.position.x) > 0.05 || Math.abs(target.z - p.mesh.position.z) > 0.05) {
+      p.mesh.lookAt(target.x, 0, target.z);
+    }
+    p.walkPhase += delta * 10;
+    p.visual.position.y = Math.abs(Math.sin(p.walkPhase)) * 0.32;
+  }
+}
+function talkToPedestrian(p) {
+  if (p.talking) return;
+  p.paused = true; p.talking = true;
+  const line = PEDESTRIAN_LINES[Math.floor(Math.random() * PEDESTRIAN_LINES.length)];
+  say("Morador de Pine Valley", line, { pitch: 1.1, rate: 1.0 });
+  setTimeout(() => { p.paused = false; p.talking = false; }, 2600);
+}
+
+/* ---------- carros ---------- */
+const cars = [];
+function buildCarMesh(color) {
+  const g = new THREE.Group();
+  const body = boxMesh(2.2,0.9,4.2,color); body.position.y=0.6; g.add(body);
+  const cabin = boxMesh(1.8,0.6,2,0x333333); cabin.position.set(0,1.2,-0.3); g.add(cabin);
+  [[-1,-1.6],[1,-1.6],[-1,1.6],[1,1.6]].forEach(([wx,wz]) => {
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.4,0.4,0.3,10), new THREE.MeshLambertMaterial({ color: 0x111111 }));
+    wheel.rotation.x = Math.PI/2; wheel.position.set(wx,0.4,wz); g.add(wheel);
+  });
+  return g;
+}
+function createLoopCar(startWp, color) {
+  const g = buildCarMesh(color);
+  scene.add(g);
+  cars.push({ type: "loop", mesh: g, wp: startWp, t: 0, speed: 0.045 });
+}
+function createStreetCar(from, to, color, speed) {
+  const g = buildCarMesh(color);
+  g.position.set(from.x, 0, from.z);
+  scene.add(g);
+  cars.push({
+    type: "pingpong", mesh: g,
+    a: new THREE.Vector3(from.x, 0, from.z), b: new THREE.Vector3(to.x, 0, to.z),
+    t: Math.random(), dir: 1, speed: speed || 0.05,
+  });
+}
+createLoopCar(0, 0xef6c6c);
+createLoopCar(2, 0x4dd0e1);
+createStreetCar({ x: -58, z: 9 }, { x: 58, z: 9 }, 0xf5d547, 0.055);      // rua horizontal central
+createStreetCar({ x: 20.5, z: -58 }, { x: 20.5, z: 58 }, 0x8dd18d, 0.05); // rua vertical central
+
+/* ---------- cutscene de abertura: chegando de carro na cidade ---------- */
+const INTRO_PATH = [
+  { x: -46, z: 60 }, // vindo de fora da cidade
+  { x: -46, z: 9 },  // entra pelo anel do perímetro (borda esquerda) até a altura da rua principal
+  { x: -24, z: 9 },  // pega a rua principal até a altura de casa
+  { x: -24, z: 4 },  // entra na "garagem" de casa
+];
+function introPathLength(path) {
+  let total = 0;
+  for (let i = 0; i < path.length - 1; i++) total += Math.hypot(path[i+1].x - path[i].x, path[i+1].z - path[i].z);
+  return total;
+}
+const INTRO_TOTAL_LEN = introPathLength(INTRO_PATH);
+function getIntroPoint(t) {
+  let dist = t * INTRO_TOTAL_LEN;
+  for (let i = 0; i < INTRO_PATH.length - 1; i++) {
+    const a = INTRO_PATH[i], b = INTRO_PATH[i+1];
+    const segLen = Math.hypot(b.x - a.x, b.z - a.z);
+    if (dist <= segLen || i === INTRO_PATH.length - 2) {
+      const segT = segLen > 0 ? Math.min(1, dist / segLen) : 1;
+      return { x: a.x + (b.x - a.x) * segT, z: a.z + (b.z - a.z) * segT, dirX: b.x - a.x, dirZ: b.z - a.z };
+    }
+    dist -= segLen;
+  }
+  const last = INTRO_PATH[INTRO_PATH.length - 1];
+  return { x: last.x, z: last.z, dirX: 0, dirZ: -1 };
+}
+function startIntro() {
+  introCar = buildCarMesh(0xef6c6c);
+  const p0 = INTRO_PATH[0];
+  introCar.position.set(p0.x, 0, p0.z);
+  scene.add(introCar);
+  player.visible = false;
+}
+function updateIntro(delta) {
+  introT += delta;
+  const t = Math.min(1, introT / INTRO_DURATION);
+  const eased = t * t * (3 - 2 * t); // suaviza início/fim
+  const pos = getIntroPoint(eased);
+  introCar.position.set(pos.x, 0, pos.z);
+  const dirLen = Math.hypot(pos.dirX, pos.dirZ) || 1;
+  const ndx = pos.dirX / dirLen, ndz = pos.dirZ / dirLen;
+  if (dirLen > 0.001) introCar.lookAt(pos.x + ndx, 0, pos.z + ndz);
+  thirdCam.position.set(pos.x - ndx * 8, 4.5, pos.z - ndz * 8);
+  thirdCam.lookAt(pos.x, 1, pos.z);
+  activeCamera = thirdCam;
+  renderer.render(scene, activeCamera);
+  if (t >= 1) endIntro();
+}
+function endIntro() {
+  if (!introActive) return;
+  introActive = false;
+  if (introCar) { scene.remove(introCar); introCar = null; }
+  document.getElementById("introOverlay").style.display = "none";
+  document.getElementById("btnSkipIntro").style.display = "none";
+  player.visible = camMode !== "first";
+  toast("Bem-vindo a Pine Valley! 🌲");
+}
+
+function carShouldBrake(carPos, dirNorm) {
+  const targets = [player.position, ...pedestrians.map(p => p.mesh.position)];
+  for (const t of targets) {
+    const toT = new THREE.Vector3(t.x - carPos.x, 0, t.z - carPos.z);
+    const forwardDist = toT.dot(dirNorm);
+    if (forwardDist <= 0 || forwardDist > 6) continue;
+    const lateral = Math.sqrt(Math.max(0, toT.lengthSq() - forwardDist * forwardDist));
+    if (lateral < 1.8) return true;
+  }
+  return false;
+}
+function updateCars(delta) {
+  for (const c of cars) {
+    if (c.type === "loop") {
+      const a0 = CAR_LOOP[c.wp], b0 = CAR_LOOP[(c.wp + 1) % CAR_LOOP.length];
+      const dirNorm = new THREE.Vector3(b0.x - a0.x, 0, b0.z - a0.z).normalize();
+      if (!carShouldBrake(c.mesh.position, dirNorm)) {
+        c.t += delta * c.speed;
+        if (c.t >= 1) { c.t -= 1; c.wp = (c.wp + 1) % CAR_LOOP.length; }
+      }
+      const a = CAR_LOOP[c.wp], b = CAR_LOOP[(c.wp + 1) % CAR_LOOP.length];
+      const av = new THREE.Vector3(a.x,0,a.z), bv = new THREE.Vector3(b.x,0,b.z);
+      c.mesh.position.lerpVectors(av, bv, c.t);
+      const dir = bv.clone().sub(av); // direção fixa do trecho (nunca chega a zero perto da curva)
+      c.mesh.lookAt(c.mesh.position.x + dir.x, c.mesh.position.y, c.mesh.position.z + dir.z);
+    } else {
+      const dirNorm0 = (c.dir > 0 ? c.b.clone().sub(c.a) : c.a.clone().sub(c.b)).normalize();
+      if (!carShouldBrake(c.mesh.position, dirNorm0)) {
+        c.t += c.dir * delta * c.speed;
+        if (c.t >= 1) { c.t = 1; c.dir = -1; }
+        if (c.t <= 0) { c.t = 0; c.dir = 1; }
+      }
+      c.mesh.position.lerpVectors(c.a, c.b, c.t);
+      const fixedDir = c.dir > 0 ? c.b.clone().sub(c.a) : c.a.clone().sub(c.b); // direção fixa (evita instabilidade nas pontas)
+      c.mesh.lookAt(c.mesh.position.x + fixedDir.x, c.mesh.position.y, c.mesh.position.z + fixedDir.z);
+    }
+  }
+}
+
+const PEDESTRIAN_HIT_LINES = ["Ai! Cuidado por onde anda!", "Ei! Quase fui atropelado!", "Nossa, que susto!"];
+const KNOCKDOWN_DURATION = 1.6;
+function knockdownAngle(elapsed, duration) {
+  const p = Math.min(1, elapsed / duration);
+  if (p < 0.25) return (p / 0.25) * (Math.PI / 2.1);       // cai
+  if (p < 0.7) return Math.PI / 2.1;                        // fica caído
+  return (1 - (p - 0.7) / 0.3) * (Math.PI / 2.1);           // levanta
+}
+function updateCarCollisions(delta) {
+  if (playerHitCooldown > 0) playerHitCooldown -= delta;
+  for (const p of pedestrians) {
+    if (p.hitCooldown > 0) p.hitCooldown -= delta;
+  }
+  for (const c of cars) {
+    const cp = c.mesh.position;
+    if (playerHitCooldown <= 0) {
+      const dPlayer = Math.hypot(cp.x - player.position.x, cp.z - player.position.z);
+      if (dPlayer < 1.8) {
+        hitPlayerByCar(c);
+        playerHitCooldown = 2.5;
+      }
+    }
+    for (const p of pedestrians) {
+      if (p.hitCooldown > 0) continue;
+      const dPed = Math.hypot(cp.x - p.mesh.position.x, cp.z - p.mesh.position.z);
+      if (dPed < 1.6) {
+        p.paused = true;
+        p.hitCooldown = 3.5;
+        p.knockElapsed = 0;
+        say("Pedestre", PEDESTRIAN_HIT_LINES[Math.floor(Math.random()*PEDESTRIAN_HIT_LINES.length)], { pitch: 1.2, rate: 1.1 });
+        setTimeout(() => { p.paused = false; }, 3200);
+      }
+    }
+  }
+}
+function hitPlayerByCar(car) {
+  const away = new THREE.Vector3(player.position.x - car.mesh.position.x, 0, player.position.z - car.mesh.position.z);
+  if (away.lengthSq() > 0.0001) {
+    away.normalize();
+    player.position.x += away.x * 2.2;
+    player.position.z += away.z * 2.2;
+  }
+  state.saude = Math.max(0, state.saude - 45);
+  refreshHUD();
+  say("Você", "Um carro me atropelou!", { pitch: 1.0, rate: 1.05 });
+  toast("🚗💥 Você foi atropelado!", 3000);
+  playerKnockElapsed = 0;
+  if (state.saude <= 0) knockedOutByCar();
+}
+function knockedOutByCar() {
+  const hospital = findBuilding("hospital");
+  if (currentArea !== "town") exitInterior();
+  currentArea = "town";
+  player.position.set(hospital.x, 0, hospital.z + hospital.d/2 + 2.6);
+  state.saude = 30;
+  refreshHUD();
+  openModal(`<h2>🚑 Você foi levado ao hospital!</h2><p>O impacto foi forte demais. Uma ambulância te socorreu e te deixou em frente ao hospital.</p><p class="note">Entre e procure a recepção pra terminar a recuperação.</p>`);
+}
+
+/* ---------- jogador ---------- */
+const player = new THREE.Group();
+const playerVisual = new THREE.Group();
+player.add(playerVisual);
+const pTorso = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.5, 12), new THREE.MeshLambertMaterial({ color: 0xef6c6c }));
+pTorso.position.y = 0.9; playerVisual.add(pTorso);
+const pHead = new THREE.Mesh(new THREE.SphereGeometry(0.4, 14, 14), new THREE.MeshLambertMaterial({ color: 0xf2c49b }));
+pHead.position.y = 1.85; playerVisual.add(pHead);
+const pNose = boxMesh(0.14,0.14,0.28, 0x1a1a2e);
+pNose.position.set(0, 1.85, 0.42); playerVisual.add(pNose);
+player.position.set(-24, 0, 4);
+scene.add(player);
+let playerWalkPhase = 0;
+
+/* ================= INTERIORES ================= */
+function addServiceWindow(g, z, width = 6.6) {
+  const frame = boxMesh(width, 3.0, 0.25, 0x5c4630); frame.position.set(0, 2.4, z - 0.15); g.add(frame);
+  const glass = new THREE.Mesh(new THREE.PlaneGeometry(width - 0.6, 2.5), new THREE.MeshLambertMaterial({ color: 0xcdeaf5, transparent: true, opacity: 0.35 }));
+  glass.position.set(0, 2.4, z + 0.13); g.add(glass);
+  const sill = boxMesh(width + 0.2, 0.3, 0.6, 0x8a6d1f); sill.position.set(0, 0.9, z + 0.1); g.add(sill);
+}
+
+const interiorDefs = {
+  home: {
+    label: "Sua Casa", anchor: { x: 80, z: 0 }, w: 10, d: 8, floor: 0xdccb9e, wall: 0xc9b189,
+    entryLocal: { x: 0, z: 3.4 }, exitLocal: { x: 0, z: 3.8 }, exitR: 1.6,
+    obstacles: [ { x: -3, z: -2, w: 1.2, d: 1.0 }, { x: 3, z: -2, w: 1.2, d: 0.8 } ],
+    hotspots: [
+      { id: "bed", x: -3, z: -2, r: 1.7, icon: "🛏️", label: "dormir", action: "sleep" },
+      { id: "pc",  x: 3,  z: -2, r: 1.6, icon: "💻", label: "usar o computador", action: "computer" },
+    ],
+    buildFurniture(g) {
+      const bed = boxMesh(2.6, 0.9, 1.6, 0xef8ba0); bed.position.set(-3, 0.45, -2); g.add(bed);
+      const pillow = boxMesh(0.7,0.3,1.4,0xffffff); pillow.position.set(-4.1,0.95,-2); g.add(pillow);
+      const desk = boxMesh(1.6, 0.8, 0.9, 0x5c4630); desk.position.set(3, 0.4, -2); g.add(desk);
+      const monitor = boxMesh(0.9, 0.7, 0.1, 0x222222); monitor.position.set(3, 1.1, -2.35); g.add(monitor);
+    }
+  },
+  lanchonete: {
+    label: "Lanchonete Sabor Rápido", anchor: { x: 80, z: 40 }, w: 19, d: 11, floor: 0xf5e2b0, wall: 0xd9b98a,
+    entryLocal: { x: 0, z: 4.9 }, exitLocal: { x: 0, z: 5.3 }, exitR: 1.8,
+    obstacles: [ { x: 0, z: -3.6, w: 15, d: 1.4 } ],
+    hotspots: [ { id: "counter", x: 0, z: -3.0, r: 1.9, icon: "💼", label: "trabalhar", action: "work" } ],
+    buildFurniture(g) {
+      const counter = boxMesh(15, 1.2, 1.4, 0xaa6633); counter.position.set(0, 0.6, -3.6); g.add(counter);
+      const grill = boxMesh(2, 0.5, 1, 0x888888); grill.position.set(-7.5, 0.25, -4.6); g.add(grill);
+      addServiceWindow(g, -5.2, 11);
+    }
+  },
+  construtora: {
+    label: "Construtora Pine Valley", anchor: { x: 80, z: 80 }, w: 13, d: 10, floor: 0xe8d9a8, wall: 0xb99a5c,
+    entryLocal: { x: 0, z: 4.4 }, exitLocal: { x: 0, z: 4.8 }, exitR: 1.8,
+    obstacles: [ { x: 0, z: -3.6, w: 7, d: 1.2 } ],
+    hotspots: [ { id: "desk", x: 0, z: -3.0, r: 1.9, icon: "💼", label: "trabalhar", action: "work" } ],
+    buildFurniture(g) {
+      const desk = boxMesh(7, 1.0, 1.2, 0x6b4a35); desk.position.set(0, 0.5, -3.6); g.add(desk);
+      const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.4,10,10,0,Math.PI*2,0,Math.PI*0.55), new THREE.MeshLambertMaterial({ color: 0xffd166 }));
+      helmet.position.set(-5, 1.3, 3.5); g.add(helmet);
+      addServiceWindow(g, -4.85);
+    }
+  },
+  robotics: {
+    label: "Robotics Valley HQ", anchor: { x: 80, z: 120 }, w: 15, d: 11, floor: 0xd9d9e6, wall: 0x555577,
+    entryLocal: { x: 0, z: 5.0 }, exitLocal: { x: 0, z: 5.4 }, exitR: 1.9,
+    obstacles: [ { x: 0, z: -3.8, w: 6, d: 1.2 } ],
+    hotspots: [ { id: "desk", x: 0, z: -3.2, r: 1.9, icon: "💼", label: "trabalhar", action: "work" } ],
+    buildFurniture(g) {
+      const desk = boxMesh(6, 1, 1.2, 0x333355); desk.position.set(0, 0.5, -3.8); g.add(desk);
+      const bot = new THREE.Mesh(new THREE.BoxGeometry(0.8,1,0.8), new THREE.MeshLambertMaterial({ color: 0x88ccdd }));
+      bot.position.set(5.5, 1.4, 4); g.add(bot);
+      addServiceWindow(g, -4.85);
+    }
+  },
+  mercado: {
+    label: "Mercadinho", anchor: { x: 80, z: 160 }, w: 10, d: 8, floor: 0xf2e6c9, wall: 0xd9a6b8,
+    entryLocal: { x: 0, z: 3.4 }, exitLocal: { x: 0, z: 3.8 }, exitR: 1.6,
+    obstacles: [ { x: 0, z: -2.6, w: 5, d: 1 }, { x: -3.6, z: 1, w: 1, d: 2 }, { x: 3.6, z: 1, w: 1, d: 2 } ],
+    hotspots: [ { id: "balcao", x: 0, z: -2.2, r: 1.7, icon: "🛒", label: "comprar comida", action: "market" } ],
+    buildFurniture(g) {
+      const counter = boxMesh(5, 0.9, 1, 0x8a4a5c); counter.position.set(0, 0.45, -2.8); g.add(counter);
+      const shelf1 = boxMesh(1, 2.2, 3, 0xc9a26a); shelf1.position.set(-3.6, 1.1, 1); g.add(shelf1);
+      const shelf2 = boxMesh(1, 2.2, 3, 0xc9a26a); shelf2.position.set(3.6, 1.1, 1); g.add(shelf2);
+    }
+  },
+  hospital: {
+    label: "Hospital de Pine Valley", anchor: { x: 80, z: 200 }, w: 12, d: 9, floor: 0xf5f5f5, wall: 0xe0546a,
+    entryLocal: { x: 0, z: 4.0 }, exitLocal: { x: 0, z: 4.4 }, exitR: 1.7,
+    obstacles: [ { x: 0, z: -3.0, w: 6, d: 1 }, { x: -4.5, z: 0, w: 1.4, d: 2.4 } ],
+    hotspots: [ { id: "recepcao", x: 0, z: -2.6, r: 1.8, icon: "🏥", label: "receber atendimento", action: "hospital" } ],
+    buildFurniture(g) {
+      const desk = boxMesh(6, 0.9, 1, 0xffffff); desk.position.set(0, 0.45, -3.0); g.add(desk);
+      const bed = boxMesh(1.6, 0.6, 3, 0xffffff); bed.position.set(-4.5, 0.3, 0.5); g.add(bed);
+      const cross = boxMesh(0.3, 1.4, 0.3, 0xe0546a); cross.position.set(0, 2.6, -4.4); g.add(cross);
+      const cross2 = boxMesh(1.4, 0.3, 0.3, 0xe0546a); cross2.position.set(0, 2.6, -4.4); g.add(cross2);
+    }
+  }
+};
+
+const interiorGroups = {};
+function buildInterior(id) {
+  const def = interiorDefs[id];
+  const group = new THREE.Group();
+  group.position.set(def.anchor.x, 0, def.anchor.z);
+
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(def.w, def.d), new THREE.MeshLambertMaterial({ color: def.floor }));
+  floor.rotation.x = -Math.PI/2; group.add(floor);
+
+  const wallH = 4, wallT = 0.4;
+  const back = boxMesh(def.w, wallH, wallT, def.wall); back.position.set(0, wallH/2, -def.d/2); group.add(back);
+  const left = boxMesh(wallT, wallH, def.d, def.wall); left.position.set(-def.w/2, wallH/2, 0); group.add(left);
+  const right = boxMesh(wallT, wallH, def.d, def.wall); right.position.set(def.w/2, wallH/2, 0); group.add(right);
+  const gap = 2.8, segW = (def.w - gap) / 2;
+  const frontL = boxMesh(segW, wallH, wallT, def.wall); frontL.position.set(-(gap/2+segW/2), wallH/2, def.d/2); group.add(frontL);
+  const frontR = boxMesh(segW, wallH, wallT, def.wall); frontR.position.set((gap/2+segW/2), wallH/2, def.d/2); group.add(frontR);
+
+  def.buildFurniture(group);
+
+  def.hotspots.forEach(h => {
+    const marker = makeTextSprite(h.icon, { fontsize: 50, scale: 1.8, bg: "rgba(0,0,0,0.35)" });
+    marker.position.set(h.x, 2.3, h.z); group.add(marker);
+  });
+  const exitMarker = makeTextSprite("🚪 saída", { fontsize: 34, scale: 1.6, bg: "rgba(0,0,0,0.35)" });
+  exitMarker.position.set(def.exitLocal.x, 2.3, def.exitLocal.z); group.add(exitMarker);
+
+  const minigameGroup = new THREE.Group();
+  group.add(minigameGroup);
+
+  scene.add(group);
+  interiorGroups[id] = { group, minigameGroup, def };
+}
+Object.keys(interiorDefs).forEach(buildInterior);
+
+/* ================= CÂMERAS (1ª e 3ª pessoa) ================= */
+let aspect = W / H;
+const firstCam = new THREE.PerspectiveCamera(70, aspect, 0.1, 300);
+const thirdCam = new THREE.PerspectiveCamera(68, aspect, 0.1, 300);
+let camMode = "third";
+let activeCamera = thirdCam;
+let activeMinigameFocus = null;
+let activeMinigameCamDist = 9;
+let cameraYaw = 0, cameraPitch = 0;
+let isDragging = false, lastMouseX = 0, lastMouseY = 0;
+
+function handleResize() {
+  W = wrap.clientWidth || W; H = wrap.clientHeight || H;
+  if (W < 10 || H < 10) return;
+  aspect = W / H;
+  firstCam.aspect = aspect; firstCam.updateProjectionMatrix();
+  thirdCam.aspect = aspect; thirdCam.updateProjectionMatrix();
+  renderer.setSize(W, H);
+}
+window.addEventListener("resize", handleResize);
+window.addEventListener("orientationchange", () => setTimeout(handleResize, 200));
+if ("ontouchstart" in window || navigator.maxTouchPoints > 0) {
+  document.body.classList.add("touch-device");
+}
+
+function facingVector(yaw, pitch) {
+  return new THREE.Vector3(
+    Math.sin(yaw) * Math.cos(pitch),
+    Math.sin(pitch),
+    Math.cos(yaw) * Math.cos(pitch)
+  );
+}
+
+function updateCameras() {
+  if (minigameMode && activeMinigameFocus) {
+    const f = activeMinigameFocus;
+    const d = activeMinigameCamDist || 9;
+    const fy = f.y !== undefined ? f.y : 1.6;
+    thirdCam.position.set(f.x + d, d*1.1, f.z + d);
+    thirdCam.lookAt(f.x, fy, f.z);
+    activeCamera = thirdCam;
+    return;
+  }
+  const p = player.position;
+  const facing = facingVector(cameraYaw, cameraPitch);
+  if (camMode === "first") {
+    firstCam.position.set(p.x, p.y + 2.0, p.z);
+    firstCam.lookAt(p.x + facing.x, p.y + 2.0 + facing.y, p.z + facing.z);
+    activeCamera = firstCam;
+  } else {
+    const dist = currentArea === "town" ? 10 : 4.3;
+    const eyeHeight = 1.85;
+    const target = new THREE.Vector3(p.x, p.y + eyeHeight, p.z);
+    thirdCam.position.set(target.x - facing.x * dist, target.y - facing.y * dist, target.z - facing.z * dist);
+    thirdCam.lookAt(target);
+    activeCamera = thirdCam;
+  }
+}
+
+/* ================= INPUT ================= */
+const keys = {};
+let cKeyLatched = false, eKeyLatched = false, jumpKeyLatched = false;
+function toggleCamera() {
+  camMode = camMode === "first" ? "third" : "first";
+  if (!minigameMode) player.visible = camMode !== "first";
+}
+function jumpAction() {
+  if (modalOpen || minigameMode || introActive) return;
+  if (playerKnockElapsed < KNOCKDOWN_DURATION) return;
+  if (player.position.y > 0.01) return; // já está no ar
+  playerVelocityY = JUMP_FORCE;
+}
+window.addEventListener("keydown", e => {
+  const k = e.key.toLowerCase();
+  keys[k] = true;
+  if (k === "c" && !cKeyLatched) { cKeyLatched = true; toggleCamera(); }
+  if (k === " " && !jumpKeyLatched) { jumpKeyLatched = true; jumpAction(); }
+});
+window.addEventListener("keyup", e => {
+  const k = e.key.toLowerCase();
+  keys[k] = false;
+  if (k === "c") cKeyLatched = false;
+  if (k === "e") eKeyLatched = false;
+  if (k === " ") jumpKeyLatched = false;
+});
+
+function rectHitTown(px, pz, b) {
+  return Math.abs(px - b.x) < (b.w/2 + 0.9) && Math.abs(pz - b.z) < (b.d/2 + 0.9);
+}
+
+function updatePlayer(delta) {
+  if (modalOpen || minigameMode) return;
+
+  // física do pulo
+  if (player.position.y > 0 || playerVelocityY > 0) {
+    playerVelocityY -= GRAVITY * delta;
+    player.position.y += playerVelocityY * delta;
+    if (player.position.y <= 0) { player.position.y = 0; playerVelocityY = 0; }
+  }
+
+  const knockedDown = playerKnockElapsed < KNOCKDOWN_DURATION;
+  let dx = 0, dz = 0;
+  if (!knockedDown) {
+    if (keys["arrowup"] || keys["w"]) dz -= 1;
+    if (keys["arrowdown"] || keys["s"]) dz += 1;
+    if (keys["arrowleft"] || keys["a"]) dx -= 1;
+    if (keys["arrowright"] || keys["d"]) dx += 1;
+    dx += joystickVec.x;
+    dz += joystickVec.y;
+  }
+
+  if (dx !== 0 || dz !== 0) {
+    const len = Math.hypot(dx, dz);
+    dx /= len; dz /= len;
+
+    // movimento relativo à direção que a câmera está olhando
+    const forward = facingVector(cameraYaw, 0);
+    const right = forward.clone().applyAxisAngle(new THREE.Vector3(0,1,0), -Math.PI/2);
+    const moveDir = new THREE.Vector3()
+      .addScaledVector(forward, -dz)
+      .addScaledVector(right, dx);
+    if (moveDir.lengthSq() > 0.0001) moveDir.normalize();
+
+    const running = (keys["shift"] || touchRunning) && !knockedDown;
+    const speed = (running ? BASE_SPEED * RUN_MULTIPLIER : BASE_SPEED) * delta;
+    if (running) state.fome = Math.max(0, state.fome - delta * RUN_FOME_EXTRA_PER_SEC);
+    let nx = player.position.x + moveDir.x * speed;
+    let nz = player.position.z + moveDir.z * speed;
+    let blockedX = false, blockedZ = false;
+
+    if (currentArea === "town") {
+      for (const b of buildingsData) {
+        if (rectHitTown(nx, player.position.z, b)) blockedX = true;
+        if (rectHitTown(player.position.x, nz, b)) blockedZ = true;
+      }
+      for (const b of decorativeBuildings) {
+        if (rectHitTown(nx, player.position.z, b)) blockedX = true;
+        if (rectHitTown(player.position.x, nz, b)) blockedZ = true;
+      }
+      for (const p of pedestrians) {
+        if (Math.hypot(nx - p.mesh.position.x, player.position.z - p.mesh.position.z) < 1.3) blockedX = true;
+        if (Math.hypot(player.position.x - p.mesh.position.x, nz - p.mesh.position.z) < 1.3) blockedZ = true;
+      }
+      nx = THREE.MathUtils.clamp(nx, -60, 60);
+      nz = THREE.MathUtils.clamp(nz, -60, 60);
+    } else {
+      const def = interiorDefs[currentArea];
+      const ax = def.anchor.x, az = def.anchor.z;
+      for (const o of def.obstacles) {
+        const ow = o.w/2 + 0.85, od = o.d/2 + 0.85;
+        const ox = ax + o.x, oz = az + o.z;
+        if (Math.abs(nx - ox) < ow && Math.abs(player.position.z - oz) < od) blockedX = true;
+        if (Math.abs(player.position.x - ox) < ow && Math.abs(nz - oz) < od) blockedZ = true;
+      }
+      nx = THREE.MathUtils.clamp(nx, ax - def.w/2 + 0.8, ax + def.w/2 - 0.8);
+      nz = THREE.MathUtils.clamp(nz, az - def.d/2 + 0.8, az + def.d/2 - 0.8);
+    }
+    if (!blockedX) player.position.x = nx;
+    if (!blockedZ) player.position.z = nz;
+    player.rotation.y = Math.atan2(moveDir.x, moveDir.z);
+
+    if (playerKnockElapsed < KNOCKDOWN_DURATION) {
+      playerWalkPhase = 0; playerVisual.position.y = 0;
+    } else {
+      playerWalkPhase += delta * 11;
+      playerVisual.position.y = Math.abs(Math.sin(playerWalkPhase)) * 0.4;
+    }
+  } else {
+    playerWalkPhase = 0;
+    if (playerKnockElapsed >= KNOCKDOWN_DURATION) playerVisual.position.y = 0;
+  }
+
+  if (playerKnockElapsed < KNOCKDOWN_DURATION) {
+    playerKnockElapsed += delta;
+    playerVisual.rotation.x = knockdownAngle(playerKnockElapsed, KNOCKDOWN_DURATION);
+  } else if (playerVisual.rotation.x !== 0) {
+    playerVisual.rotation.x = 0;
+  }
+
+  nearBuilding = null; nearHotspot = null; nearPedestrian = null;
+  const promptEl = document.getElementById("prompt");
+
+  if (currentArea === "town") {
+    for (const b of buildingsData) {
+      if (b.locked && !buildingUnlocked(b.id)) continue;
+      const doorZ = b.z + b.d/2 + 1.2;
+      const distToDoor = Math.hypot(player.position.x - b.x, player.position.z - doorZ);
+      if (distToDoor < 3.2) { nearBuilding = b; break; }
+    }
+    if (!nearBuilding) {
+      for (const p of pedestrians) {
+        if (Math.hypot(player.position.x - p.mesh.position.x, player.position.z - p.mesh.position.z) < 2.3) { nearPedestrian = p; break; }
+      }
+    }
+    promptEl.style.display = (nearBuilding || nearPedestrian) ? "block" : "none";
+    promptEl.textContent = nearBuilding ? "Pressione E para entrar" : (nearPedestrian ? "Pressione E para conversar" : "");
+  } else {
+    const def = interiorDefs[currentArea];
+    const ax = def.anchor.x, az = def.anchor.z;
+    for (const h of def.hotspots) {
+      const hx = ax + h.x, hz = az + h.z;
+      if (Math.hypot(player.position.x - hx, player.position.z - hz) < h.r) { nearHotspot = h; break; }
+    }
+    if (!nearHotspot) {
+      const ex = ax + def.exitLocal.x, ez = az + def.exitLocal.z;
+      if (Math.hypot(player.position.x - ex, player.position.z - ez) < def.exitR) {
+        nearHotspot = { id: "exit", label: "sair", action: "exit" };
+      }
+    }
+    promptEl.style.display = nearHotspot ? "block" : "none";
+    if (nearHotspot) promptEl.textContent = nearHotspot.action === "exit" ? "Pressione E para sair" : `Pressione E para ${nearHotspot.label}`;
+  }
+
+  if (keys["e"] && !eKeyLatched) {
+    eKeyLatched = true;
+    tryInteract();
+  }
+}
+function tryInteract() {
+  if (modalOpen || minigameMode) return;
+  if (currentArea === "town" && nearBuilding) enterInterior(nearBuilding.id);
+  else if (currentArea === "town" && nearPedestrian) talkToPedestrian(nearPedestrian);
+  else if (currentArea !== "town" && nearHotspot) handleHotspot(nearHotspot);
+}
+
+function enterInterior(id) {
+  currentArea = id;
+  const def = interiorDefs[id];
+  player.position.set(def.anchor.x + def.entryLocal.x, 0, def.anchor.z + def.entryLocal.z);
+  player.rotation.y = Math.PI;
+  document.getElementById("areaTag").style.display = "block";
+  document.getElementById("areaTagText").textContent = def.label;
+  toast("Você entrou: " + def.label, 1600);
+}
+function exitInterior() {
+  const bd = findBuilding(currentArea);
+  currentArea = "town";
+  player.position.set(bd.x, 0, bd.z + bd.d/2 + 2.6);
+  player.rotation.y = 0;
+  document.getElementById("areaTag").style.display = "none";
+}
+function isNightTime() {
+  return timeOfDay >= 21 || timeOfDay < 5;
+}
+function handleHotspot(h) {
+  if (h.action === "exit") return exitInterior();
+  if (h.action === "sleep") {
+    if (!isNightTime()) { toast("😴 Só dá pra dormir à noite. Volte mais tarde!"); return; }
+    return sleepAndAdvance();
+  }
+  if (h.action === "computer") return openComputer();
+  if (h.action === "work") return tryStartWork(currentArea);
+  if (h.action === "market") return openMarket();
+  if (h.action === "hospital") return healAtHospital();
+}
+
+/* ================= CICLO DIA/NOITE ================= */
+let timeOfDay = 7;
+const DAY_LENGTH_SECONDS = 300;
+const SKY_NIGHT = new THREE.Color(0x0b1030);
+const SKY_DAWN = new THREE.Color(0xffa15c);
+const SKY_DAY = new THREE.Color(0x8fd0f0);
+let hudTimeCounter = 0;
+
+function updateDayNight(delta) {
+  timeOfDay += (delta / DAY_LENGTH_SECONDS) * 24;
+  if (timeOfDay >= 24) timeOfDay -= 24;
+  let c, sunIntensity, ambIntensity;
+  if (timeOfDay >= 5 && timeOfDay < 7) {
+    const t = (timeOfDay - 5) / 2; c = SKY_NIGHT.clone().lerp(SKY_DAWN, t); sunIntensity = 0.25+t*0.55; ambIntensity = 0.3+t*0.3;
+  } else if (timeOfDay >= 7 && timeOfDay < 17) {
+    const t = Math.min(1,(timeOfDay - 7)/2); c = SKY_DAWN.clone().lerp(SKY_DAY, t); sunIntensity = 0.9; ambIntensity = 0.7;
+  } else if (timeOfDay >= 17 && timeOfDay < 19) {
+    const t = (timeOfDay - 17)/2; c = SKY_DAY.clone().lerp(SKY_DAWN, t); sunIntensity = 0.9-t*0.5; ambIntensity = 0.7-t*0.3;
+  } else if (timeOfDay >= 19 && timeOfDay < 21) {
+    const t = (timeOfDay - 19)/2; c = SKY_DAWN.clone().lerp(SKY_NIGHT, t); sunIntensity = 0.4-t*0.32; ambIntensity = 0.4-t*0.22;
+  } else {
+    c = SKY_NIGHT; sunIntensity = 0.08; ambIntensity = 0.18;
+  }
+  scene.background.copy(c);
+  scene.fog.color.copy(c);
+  sun.intensity = sunIntensity;
+  ambientLight.intensity = ambIntensity;
+  const angle = (timeOfDay / 24) * Math.PI * 2;
+  sun.position.set(Math.cos(angle) * 60, Math.max(6, Math.sin(angle) * 60), 20);
+
+  hudTimeCounter += delta;
+  if (hudTimeCounter > 0.5) {
+    hudTimeCounter = 0;
+    const h = Math.floor(timeOfDay); const m = Math.floor((timeOfDay - h) * 60);
+    document.getElementById("hudTime").textContent = String(h).padStart(2,"0") + ":" + String(m).padStart(2,"0");
+  }
+
+  updateSurvivalStats(delta);
+}
+
+const FOME_DECAY_PER_SEC = 100 / 600; // esvazia em ~2 dias de jogo
+const SAUDE_DECAY_PER_SEC = 100 / 90; // com fome zerada, perde a vida em ~90s
+function updateSurvivalStats(delta) {
+  if (modalOpen || minigameMode) return;
+  state.fome = Math.max(0, state.fome - delta * FOME_DECAY_PER_SEC);
+  if (state.fome <= 0) {
+    state.saude = Math.max(0, state.saude - delta * SAUDE_DECAY_PER_SEC);
+  }
+  refreshHUD();
+  if (state.saude <= 0) faintFromHunger();
+}
+function faintFromHunger() {
+  if (currentArea !== "town") exitInterior();
+  const home = findBuilding("home");
+  currentArea = "town";
+  player.position.set(home.x, 0, home.z + home.d/2 + 2.6);
+  state.saude = 50; state.fome = 35;
+  state.day += 1; state.workedToday = false;
+  timeOfDay = 7;
+  refreshHUD();
+  openModal(`<h2>😵 Você desmaiou de fome!</h2><p>Alguém te levou pra casa. Acordou com a vida e a fome parcialmente recuperadas, mas perdeu o dia de hoje.</p><p class="note">Coma no Mercadinho pra evitar isso!</p>`);
+}
+
+/* ================= LOOP ================= */
+const clock = new THREE.Clock();
+let gameErrorLogged = false;
+function animate() {
+  requestAnimationFrame(animate);
+  try {
+    const delta = Math.min(clock.getDelta(), 0.05);
+    if (introActive) { updateIntro(delta); return; }
+    updatePlayer(delta);
+    updateDayNight(delta);
+    if (currentArea === "town" && !modalOpen && !minigameMode) { updatePedestrians(delta); updateCars(delta); updateCarCollisions(delta); }
+    if (orderState) updateOrderAnim(delta);
+    updateCameras();
+    renderer.render(scene, activeCamera);
+  } catch (err) {
+    if (!gameErrorLogged) {
+      gameErrorLogged = true;
+      console.error("Erro no loop do jogo (reportado uma única vez):", err);
+    }
+  }
+}
+animate();
+
+/* ================= CÂMERA COM MOUSE (segurar botão direito) ================= */
+renderer.domElement.addEventListener("contextmenu", (ev) => ev.preventDefault());
+renderer.domElement.addEventListener("mousedown", (ev) => {
+  if (ev.button !== 2) return; // só botão direito
+  if (modalOpen || minigameMode || introActive) return;
+  isDragging = true;
+  lastMouseX = ev.clientX; lastMouseY = ev.clientY;
+  renderer.domElement.classList.add("dragging");
+});
+window.addEventListener("mousemove", (ev) => {
+  if (!isDragging) return;
+  const dx = ev.clientX - lastMouseX;
+  const dy = ev.clientY - lastMouseY;
+  lastMouseX = ev.clientX; lastMouseY = ev.clientY;
+  cameraYaw -= dx * 0.006;
+  cameraPitch = THREE.MathUtils.clamp(cameraPitch - dy * 0.006, -0.6, 0.6);
+});
+window.addEventListener("mouseup", (ev) => {
+  if (ev.button !== 2) return;
+  isDragging = false;
+  renderer.domElement.classList.remove("dragging");
+});
+renderer.domElement.addEventListener("mouseleave", () => {
+  isDragging = false;
+  renderer.domElement.classList.remove("dragging");
+});
+
+/* ================= CONTROLES DE TOQUE (celular) ================= */
+const activeTouches = {};
+const joystickBase = document.getElementById("joystickBase");
+const joystickThumb = document.getElementById("joystickThumb");
+const JOY_MAX = 42;
+
+function touchZoneFor(clientX) {
+  const rect = wrap.getBoundingClientRect();
+  return (clientX - rect.left) < rect.width / 2 ? "move" : "look";
+}
+wrap.addEventListener("touchstart", (ev) => {
+  if (modalOpen || minigameMode || introActive) return;
+  for (const t of ev.changedTouches) {
+    const rect = wrap.getBoundingClientRect();
+    const zone = touchZoneFor(t.clientX);
+    activeTouches[t.identifier] = { zone, startX: t.clientX, startY: t.clientY, lastX: t.clientX, lastY: t.clientY };
+    if (zone === "move") {
+      joystickBase.style.left = (t.clientX - rect.left) + "px";
+      joystickBase.style.top = (t.clientY - rect.top) + "px";
+      joystickBase.style.display = "block";
+      joystickThumb.style.transform = "translate(-50%,-50%)";
+    }
+  }
+}, { passive: true });
+wrap.addEventListener("touchmove", (ev) => {
+  for (const t of ev.changedTouches) {
+    const info = activeTouches[t.identifier];
+    if (!info) continue;
+    if (info.zone === "move") {
+      let dx = t.clientX - info.startX, dy = t.clientY - info.startY;
+      const len = Math.hypot(dx, dy);
+      if (len > JOY_MAX) { dx = dx / len * JOY_MAX; dy = dy / len * JOY_MAX; }
+      joystickVec.x = dx / JOY_MAX;
+      joystickVec.y = dy / JOY_MAX;
+      joystickThumb.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+    } else {
+      const ddx = t.clientX - info.lastX, ddy = t.clientY - info.lastY;
+      info.lastX = t.clientX; info.lastY = t.clientY;
+      cameraYaw -= ddx * 0.006;
+      cameraPitch = THREE.MathUtils.clamp(cameraPitch - ddy * 0.006, -0.6, 0.6);
+    }
+  }
+}, { passive: true });
+function endTouch(ev) {
+  for (const t of ev.changedTouches) {
+    const info = activeTouches[t.identifier];
+    if (!info) continue;
+    if (info.zone === "move") {
+      joystickVec.x = 0; joystickVec.y = 0;
+      joystickBase.style.display = "none";
+    }
+    delete activeTouches[t.identifier];
+  }
+}
+wrap.addEventListener("touchend", endTouch, { passive: true });
+wrap.addEventListener("touchcancel", endTouch, { passive: true });
+
+document.getElementById("btnInteract").addEventListener("touchstart", (ev) => {
+  ev.preventDefault();
+  tryInteract();
+});
+document.getElementById("btnCamera").addEventListener("touchstart", (ev) => {
+  ev.preventDefault();
+  toggleCamera();
+});
+document.getElementById("btnJump").addEventListener("touchstart", (ev) => {
+  ev.preventDefault();
+  jumpAction();
+});
+const btnRun = document.getElementById("btnRun");
+btnRun.addEventListener("touchstart", (ev) => {
+  ev.preventDefault();
+  touchRunning = true;
+  btnRun.classList.add("active");
+});
+btnRun.addEventListener("touchend", (ev) => {
+  ev.preventDefault();
+  touchRunning = false;
+  btnRun.classList.remove("active");
+});
+btnRun.addEventListener("touchcancel", () => {
+  touchRunning = false;
+  btnRun.classList.remove("active");
+});
+
+/* ================= RAYCASTER ================= */
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let clickHandler = null;
+renderer.domElement.addEventListener("click", (ev) => {
+  if (!clickHandler) return;
+  try {
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(mouse, activeCamera);
+    clickHandler(raycaster);
+  } catch (err) {
+    console.error("Erro ao processar clique:", err);
+  }
+});
+
+/* ================= HUD ================= */
+function refreshHUD() {
+  document.getElementById("hudDay").textContent = state.day;
+  document.getElementById("hudMoney").textContent = state.money;
+  document.getElementById("hudJob").textContent = jobTiers[state.jobTier].title;
+  document.getElementById("barVida").style.width = Math.max(0, Math.min(100, state.saude)) + "%";
+  document.getElementById("barFome").style.width = Math.max(0, Math.min(100, state.fome)) + "%";
+  document.getElementById("barCulinaria").style.width = Math.min(100, state.skills.culinaria) + "%";
+  document.getElementById("barConstrucao").style.width = Math.min(100, state.skills.construcao) + "%";
+  document.getElementById("barRobotica").style.width = Math.min(100, state.skills.robotica) + "%";
+}
+function toast(msg, ms=2600) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.style.display = "block";
+  clearTimeout(toast._h);
+  toast._h = setTimeout(() => t.style.display = "none", ms);
+}
+
+/* ================= MODAL ================= */
+const overlay = document.getElementById("modalOverlay");
+const box = document.getElementById("modalBox");
+function closeModal() { modalOpen = false; overlay.style.display = "none"; }
+function openModal(html) {
+  modalOpen = true; overlay.style.display = "flex";
+  box.innerHTML = html + '<div><button class="closeBtn" data-action="closeModal">Fechar</button></div>';
+}
+box.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-action]");
+  if (!btn || btn.disabled) return;
+  handleUIAction(btn.dataset.action, btn.dataset.arg);
+});
+document.getElementById("stageHud").addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-action]");
+  if (!btn || btn.disabled) return;
+  handleUIAction(btn.dataset.action, btn.dataset.arg);
+});
+function handleUIAction(action, arg) {
+  switch (action) {
+    case "closeModal": closeModal(); break;
+    case "startCourse": startCourse(Number(arg)); break;
+    case "answerQuiz": answerQuiz(Number(arg)); break;
+    case "discardCurrentOrder": discardCurrentOrder(); break;
+    case "buyFood": buyFood(Number(arg)); break;
+  }
+}
+
+function sleepAndAdvance() {
+  state.day += 1; state.workedToday = false;
+  timeOfDay = 6.5;
+  toast("Um novo dia começou ☀️");
+}
+
+function tryStartWork(buildingId) {
+  const job = jobTiers[state.jobTier];
+  if (job.building !== buildingId) { toast("Seu cargo atual não trabalha aqui."); return; }
+  if (state.workedToday) { toast("Você já trabalhou hoje. Durma para avançar o dia."); return; }
+  if (buildingId === "lanchonete") startOrderGame3D(buildingId);
+  else startEmployeeGame3D(buildingId);
+}
+
+function finishShift(performance) {
+  const job = jobTiers[state.jobTier];
+  const bonus = Math.round(job.pay * (performance/100));
+  const earned = Math.round(job.pay * 0.5) + bonus;
+  state.money += earned;
+  state.daysAtJob += 1;
+  state.workedToday = true;
+  const gain = Math.round((performance/100) * 6) + 2;
+  state.skills[job.skill] += gain;
+  refreshHUD();
+  checkPromotion();
+  openModal(`
+    <h2>Turno concluído!</h2>
+    <p>Desempenho: <b>${performance}%</b></p>
+    <p>Você ganhou <b>R$${earned}</b></p>
+    <p class="note">Volte pra casa e durma pra avançar o dia, ou compre um curso no computador.</p>
+  `);
+}
+
+function checkPromotion() {
+  const job = jobTiers[state.jobTier];
+  const req = job.req;
+  if (!req) return;
+  const meetsSkills = Object.keys(req).every(k => {
+    if (k === "days") return state.daysAtJob >= req.days;
+    return state.skills[k] >= req[k];
+  });
+  if (meetsSkills) {
+    state.jobTier += 1;
+    state.daysAtJob = 0;
+    const newTitle = jobTiers[state.jobTier].title;
+    refreshLockedVisuals();
+    setTimeout(() => toast("🎉 PROMOÇÃO! Agora você é " + newTitle, 4000), 400);
+    if (state.jobTier === jobTiers.length - 1) {
+      setTimeout(() => openModal(`
+        <h2>🏆 VOCÊ VENCEU!</h2>
+        <p>Você fundou sua própria empresa: <b>Robotics Valley</b>!</p>
+        <p>Obrigado por jogar Pine Valley!</p>
+      `), 4600);
+    }
+  }
+}
+
+/* ---------- COMPUTADOR / CURSOS / QUIZ ---------- */
+function openComputer() {
+  const list = COURSES.map((c,i) => `
+    <div class="item"><b>${c.name}</b> — R$${c.cost} (${c.skill})
+      <div><button ${state.money < c.cost ? "disabled" : ""} data-action="startCourse" data-arg="${i}">Comprar e estudar</button></div>
+    </div>`).join("");
+  openModal(`<h2>💻 Computador</h2><p class="note">Compre cursos online e responda o quiz pra aprender de verdade.</p>${list}`);
+}
+function startCourse(i) {
+  const c = COURSES[i];
+  if (state.money < c.cost) return;
+  state.money -= c.cost;
+  refreshHUD();
+  const bank = QUIZ_BANKS[c.skill];
+  const questions = [...bank].sort(() => Math.random() - 0.5).slice(0, 5);
+  quizState = { skill: c.skill, questions, index: 0, correctCount: 0 };
+  renderQuizQuestion();
+}
+function renderQuizQuestion() {
+  const q = quizState.questions[quizState.index];
+  const optsHtml = q.opts.map((o,i) => `<div><button data-action="answerQuiz" data-arg="${i}">${o}</button></div>`).join("");
+  openModal(`<h2>🧠 Pergunta ${quizState.index+1}/${quizState.questions.length}</h2><p>${q.q}</p>${optsHtml}`);
+}
+function answerQuiz(i) {
+  const q = quizState.questions[quizState.index];
+  if (i === q.correct) {
+    quizState.correctCount += 1;
+    state.skills[quizState.skill] += 6;
+    toast("✅ Correto! +6 " + quizState.skill);
+  } else {
+    toast("❌ Não era essa...");
+  }
+  quizState.index += 1;
+  refreshHUD();
+  checkPromotion();
+  if (quizState.index >= quizState.questions.length) {
+    openModal(`<h2>📚 Curso concluído!</h2><p>Você acertou ${quizState.correctCount}/${quizState.questions.length} perguntas.</p>`);
+    quizState = null;
+  } else {
+    renderQuizQuestion();
+  }
+}
+
+/* ---------- MERCADINHO (comida) ---------- */
+const FOOD_ITEMS = [
+  { name: "Maçã",        cost: 4,  fome: 15, saude: 0,  emoji: "🍎" },
+  { name: "Pão de queijo", cost: 8, fome: 25, saude: 2,  emoji: "🧀" },
+  { name: "Sanduíche",   cost: 15, fome: 40, saude: 5,  emoji: "🥪" },
+  { name: "Marmita",     cost: 28, fome: 70, saude: 15, emoji: "🍱" },
+];
+function openMarket() {
+  const list = FOOD_ITEMS.map((f,i) => `
+    <div class="item"><b>${f.emoji} ${f.name}</b> — R$${f.cost} (+${f.fome} fome${f.saude ? `, +${f.saude} vida` : ""})
+      <div><button ${state.money < f.cost ? "disabled" : ""} data-action="buyFood" data-arg="${i}">Comprar e comer</button></div>
+    </div>`).join("");
+  openModal(`<h2>🛒 Mercadinho</h2><p class="note">Compre algo pra comer — sua fome baixa com o tempo, e fome zerada começa a tirar sua vida.</p>${list}`);
+}
+function buyFood(i) {
+  const f = FOOD_ITEMS[i];
+  if (state.money < f.cost) return;
+  state.money -= f.cost;
+  state.fome = Math.min(100, state.fome + f.fome);
+  state.saude = Math.min(100, state.saude + f.saude);
+  refreshHUD();
+  toast(`${f.emoji} Comeu: ${f.name}!`);
+  openMarket();
+}
+
+/* ---------- HOSPITAL (curar vida) ---------- */
+const HOSPITAL_COST = 35;
+function healAtHospital() {
+  if (state.saude >= 100) {
+    openModal(`<h2>🏥 Hospital de Pine Valley</h2><p>Você está com a vida cheia, não precisa de atendimento agora.</p>`);
+    return;
+  }
+  if (state.money < HOSPITAL_COST) {
+    openModal(`<h2>🏥 Hospital de Pine Valley</h2><p>O atendimento custa <b>R$${HOSPITAL_COST}</b> e você não tem esse valor agora.</p><p class="note">Volte quando tiver dinheiro suficiente.</p>`);
+    return;
+  }
+  state.money -= HOSPITAL_COST;
+  state.saude = 100;
+  refreshHUD();
+  openModal(`<h2>🏥 Hospital de Pine Valley</h2><p>Atendimento feito — sua vida foi totalmente recuperada!</p><p class="note">Cobrado: R$${HOSPITAL_COST}</p>`);
+}
+
+/* ================= MINIGAMES ================= */
+function enterMinigame(focusWorld, camDist = 9) {
+  minigameMode = true;
+  activeMinigameFocus = focusWorld;
+  activeMinigameCamDist = camDist;
+  player.visible = false;
+  document.getElementById("stageHud").style.display = "block";
+}
+function exitMinigame(minigameGroup) {
+  minigameMode = null;
+  activeMinigameFocus = null;
+  activeMinigameCamDist = 9;
+  clickHandler = null;
+  player.visible = camMode !== "first";
+  while (minigameGroup.children.length) minigameGroup.remove(minigameGroup.children[0]);
+  document.getElementById("stageHud").style.display = "none";
+  document.getElementById("stageHud").innerHTML = "";
+}
+
+/* ---------- MINIGAME LANCHONETE: janela + montagem de sanduíche ---------- */
+const QUEUE_SIZE = 3;
+const WINDOW_SLOTS = [ { x: -2.3, y: 2.35, z: -4.6 }, { x: 0, y: 2.35, z: -4.6 }, { x: 2.3, y: 2.35, z: -4.6 } ];
+
+function startOrderGame3D(buildingId) {
+  const ig = interiorGroups[buildingId];
+  const def = ig.def;
+  enterMinigame({ x: def.anchor.x, y: 3.6, z: def.anchor.z - 2.6 }, 22);
+  orderState = {
+    buildingId, ig,
+    queue: [], totalSpawned: 0, totalToServe: 5, served: 0, scoreSum: 0,
+    input: [], stackMeshes: [], buttons: [], timer: null, timeLeft: 0,
+  };
+  const row1 = INGREDIENTS.slice(0, 4);
+  const row2 = INGREDIENTS.slice(4);
+  row1.forEach((ing, i) => {
+    const sp = makeTextSprite(ing.emoji, { fontsize: 110, scale: 3.4, bg: "rgba(255,255,255,0.22)" });
+    sp.position.set((i - (row1.length - 1) / 2) * 4.4, 5.6, -2.6);
+    sp.userData.key = ing.key;
+    ig.minigameGroup.add(sp);
+    orderState.buttons.push(sp);
+  });
+  row2.forEach((ing, i) => {
+    const sp = makeTextSprite(ing.emoji, { fontsize: 110, scale: 3.4, bg: "rgba(255,255,255,0.22)" });
+    sp.position.set((i - (row2.length - 1) / 2) * 4.4, 1.6, -2.6);
+    sp.userData.key = ing.key;
+    ig.minigameGroup.add(sp);
+    orderState.buttons.push(sp);
+  });
+  clickHandler = (ray) => {
+    const hit = ray.intersectObjects(orderState.buttons)[0];
+    if (hit) ingredientClick(hit.object.userData.key);
+  };
+  for (let i = 0; i < QUEUE_SIZE; i++) spawnNextCustomer();
+  renderOrderHud();
+}
+function spawnNextCustomer() {
+  if (orderState.queue.length >= QUEUE_SIZE) return;
+  if (orderState.totalSpawned >= orderState.totalToServe) return;
+  orderState.totalSpawned += 1;
+  const recipe = RECIPES[Math.floor(Math.random() * RECIPES.length)];
+  const slotIndex = orderState.queue.length;
+  const slot = WINDOW_SLOTS[slotIndex];
+  const g = createPersonBust(0xf2c49b, 0x4a3324, 0x66aacc);
+  g.position.set(slot.x, slot.y, slot.z);
+  g.scale.set(0.5, 0.5, 0.5);
+  orderState.ig.minigameGroup.add(g);
+  orderState.queue.push({ mesh: g, recipe, sequence: recipe.seq, state: "poppingIn", t: 0, duration: 0.35, slotIndex });
+}
+function onCustomerArrivedFront() { startServiceTimer(); renderOrderHud(); }
+function startServiceTimer() {
+  clearInterval(orderState.timer);
+  orderState.timeLeft = Math.max(24, 32 - state.jobTier * 2);
+  orderState.input = [];
+  clearStackMeshes();
+  orderState.timer = setInterval(() => {
+    try {
+      orderState.timeLeft -= 1;
+      if (orderState.timeLeft <= 0) { clearInterval(orderState.timer); deliverCurrentOrder(); }
+      else renderOrderHud();
+    } catch (err) { clearInterval(orderState.timer); console.error("Erro no cronômetro:", err); }
+  }, 1000);
+}
+function updateOrderAnim(delta) {
+  for (const c of orderState.queue) {
+    if (c.state === "poppingIn" || c.state === "poppingOut") {
+      c.t += delta / c.duration;
+      const t = Math.min(1, c.t);
+      const s = c.state === "poppingIn" ? 0.5 + 0.5*t : 1 - 0.9*t;
+      c.mesh.scale.set(s,s,s);
+      setGroupOpacity(c.mesh, c.state === "poppingIn" ? t : 1 - t);
+      if (t >= 1) {
+        if (c.state === "poppingOut") { orderState.ig.minigameGroup.remove(c.mesh); c._removed = true; }
+        else { c.state = "idle"; if (c.slotIndex === 0) onCustomerArrivedFront(); }
+      }
+    }
+  }
+  if (orderState.queue.some(c => c._removed)) {
+    orderState.queue = orderState.queue.filter(c => !c._removed);
+    advanceQueuePositions();
+  }
+}
+function advanceQueuePositions() {
+  orderState.queue.forEach((c, idx) => {
+    if (c.slotIndex !== idx) {
+      c.slotIndex = idx;
+      const slot = WINDOW_SLOTS[idx];
+      c.mesh.position.set(slot.x, slot.y, slot.z);
+      if (idx === 0 && c.state === "idle") onCustomerArrivedFront();
+    }
+  });
+  spawnNextCustomer();
+  if (orderState.queue.length === 0 && orderState.totalSpawned >= orderState.totalToServe) {
+    const perf = Math.round(orderState.scoreSum / orderState.totalToServe);
+    const ig = orderState.ig;
+    exitMinigame(ig.minigameGroup);
+    orderState = null;
+    finishShift(perf);
+  } else {
+    renderOrderHud();
+  }
+}
+function clearStackMeshes() {
+  orderState.stackMeshes.forEach(m => orderState.ig.minigameGroup.remove(m));
+  orderState.stackMeshes = [];
+}
+function addStackLayer(key) {
+  const ing = INGREDIENTS.find(i => i.key === key);
+  const h = 0.32;
+  const layer = boxMesh(1.5, h, 1.5, ing.color);
+  layer.position.set(0, h/2 + orderState.stackMeshes.length * h, -0.6);
+  orderState.ig.minigameGroup.add(layer);
+  orderState.stackMeshes.push(layer);
+}
+function renderOrderHud() {
+  const front = orderState.queue[0];
+  const servedTxt = `Atendidos: ${orderState.served}/${orderState.totalToServe}`;
+  if (!front || front.state !== "idle") {
+    document.getElementById("stageHud").innerHTML = `
+      <div><b>🍔 Lanchonete</b> — ${servedTxt}</div>
+      <div class="note">Aguardando cliente aparecer na janela... (${orderState.queue.length} na fila)</div>`;
+    return;
+  }
+  const seq = front.sequence.map(k => INGREDIENTS.find(x => x.key === k).emoji).join(" ");
+  const montado = orderState.input.length ? orderState.input.map(k => INGREDIENTS.find(x => x.key === k).emoji).join(" ") : "—";
+  document.getElementById("stageHud").innerHTML = `
+    <div><b>🍔 ${servedTxt}</b> — pedido: ${front.recipe.name} · fila: ${orderState.queue.length}</div>
+    <div class="seq">${seq}</div>
+    <div class="note">Montado até agora: ${montado}</div>
+    <div class="note">Tempo: ${orderState.timeLeft}s</div>
+    <button class="stageBtn" data-action="discardCurrentOrder">🗑️ Descartar e recomeçar</button>`;
+}
+function ingredientClick(key) {
+  const front = orderState.queue[0];
+  if (!front || front.state !== "idle") return;
+  orderState.input.push(key);
+  addStackLayer(key);
+  if (orderState.input.length >= front.sequence.length) deliverCurrentOrder();
+  else renderOrderHud();
+}
+function discardCurrentOrder() { orderState.input = []; clearStackMeshes(); renderOrderHud(); }
+function deliverCurrentOrder() {
+  clearInterval(orderState.timer);
+  const front = orderState.queue[0];
+  let orderScore = 0;
+  if (front) {
+    const seq = front.sequence;
+    let matches = 0;
+    for (let i = 0; i < seq.length; i++) if (orderState.input[i] === seq[i]) matches++;
+    const accuracy = Math.round((matches / seq.length) * 100);
+    orderScore = accuracy;
+    if (accuracy === 100) orderScore = Math.min(100, orderScore + Math.min(20, Math.round((orderState.timeLeft/32)*20)));
+    const line = accuracy === 100 ? CUSTOMER_PRAISE[Math.floor(Math.random()*CUSTOMER_PRAISE.length)]
+      : accuracy >= 50 ? CUSTOMER_MEH[Math.floor(Math.random()*CUSTOMER_MEH.length)]
+      : CUSTOMER_ANGRY[Math.floor(Math.random()*CUSTOMER_ANGRY.length)];
+    say("Cliente", line, { pitch: 1.15, rate: 1.05 });
+    front.state = "poppingOut"; front.t = 0; front.duration = 0.3;
+  }
+  orderState.scoreSum += orderScore;
+  orderState.served += 1;
+  orderState.input = [];
+  clearStackMeshes();
+  renderOrderHud();
+}
+
+/* ---------- MINIGAME CONSTRUTORA/ROBOTICS: gestão de equipe ---------- */
+function startEmployeeGame3D(buildingId) {
+  const ig = interiorGroups[buildingId];
+  const def = ig.def;
+  enterMinigame({ x: def.anchor.x, z: def.anchor.z - 1.6 }, 12);
+  const pool = EMPLOYEE_SCENARIOS[buildingId];
+  const chosen = [...pool].sort(() => Math.random() - 0.5).slice(0, 3);
+  decisionState = { scenarios: chosen, index: 0, score: 0, podiums: [], employeeMesh: null, buildingId, ig };
+  renderEmployeeScene();
+}
+function renderEmployeeScene() {
+  const ig = decisionState.ig;
+  decisionState.podiums.forEach(p => ig.minigameGroup.remove(p.group));
+  decisionState.podiums = [];
+  if (decisionState.employeeMesh) { ig.minigameGroup.remove(decisionState.employeeMesh); decisionState.employeeMesh = null; }
+
+  const sc = decisionState.scenarios[decisionState.index];
+  const emp = createPersonBust(0xf2c49b, 0x33291f, 0x88aacc);
+  emp.position.set(0, 2.35, -4.6);
+  setGroupOpacity(emp, 1);
+  ig.minigameGroup.add(emp);
+  decisionState.employeeMesh = emp;
+  say(sc.employee, sc.line, { pitch: 0.85, rate: 0.95 });
+
+  sc.options.forEach((o, i) => {
+    const g = new THREE.Group();
+    const podium = boxMesh(2.2,1.8,2.2, 0x8888cc);
+    podium.position.y = 0.9; g.add(podium);
+    const lbl = makeTextSprite(o.label, { fontsize: 26, scale: 1.7, bg: "rgba(20,20,40,0.9)" });
+    lbl.position.y = 2.2; g.add(lbl);
+    g.position.set((i - 1) * 4.4, 0, -1.2);
+    g.userData.optionIndex = i;
+    ig.minigameGroup.add(g);
+    decisionState.podiums.push({ group: g, index: i });
+  });
+  clickHandler = (ray) => {
+    const objs = decisionState.podiums.map(p => p.group.children).flat();
+    const hit = ray.intersectObjects(objs)[0];
+    if (hit) {
+      let obj = hit.object;
+      while (obj.parent && obj.userData.optionIndex === undefined) obj = obj.parent;
+      if (obj.userData.optionIndex !== undefined) employeePick(obj.userData.optionIndex);
+    }
+  };
+  document.getElementById("stageHud").innerHTML = `
+    <div><b>👔 Funcionário ${decisionState.index+1}/${decisionState.scenarios.length}</b> — ${sc.employee}</div>
+    <div class="note">Escolha sua resposta clicando no pódio</div>`;
+}
+function employeePick(i) {
+  const sc = decisionState.scenarios[decisionState.index];
+  decisionState.score += sc.options[i].score;
+  decisionState.index += 1;
+  if (decisionState.index >= decisionState.scenarios.length) {
+    const ig = decisionState.ig;
+    const performance = Math.round(decisionState.score / decisionState.scenarios.length);
+    decisionState.podiums.forEach(p => ig.minigameGroup.remove(p.group));
+    if (decisionState.employeeMesh) ig.minigameGroup.remove(decisionState.employeeMesh);
+    exitMinigame(ig.minigameGroup);
+    decisionState = null;
+    finishShift(performance);
+  } else {
+    renderEmployeeScene();
+  }
+}
+
+/* ================= START ================= */
+handleResize();
+refreshHUD();
+document.getElementById("btnSkipIntro").addEventListener("click", endIntro);
+document.getElementById("btnSkipIntro").addEventListener("touchstart", (ev) => { ev.preventDefault(); endIntro(); });
+startIntro();
+</script>
+</body>
+</html>
