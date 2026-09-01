@@ -156,10 +156,13 @@
 </div>
 
 <div id="controls">Setas / WASD para andar · E para interagir/conversar · C para trocar câmera</div>
+<button id="btnFriends" style="margin-top:8px;font-family:inherit;background:#4dd0e1;color:#1a1a2e;border:none;padding:8px 14px;font-size:12px;font-weight:bold;cursor:pointer;">👥 Amigos</button>
 
 <script>
 /* ================= ESTADO ================= */
 let orderState = null, decisionState = null, quizState = null, nurseState = null;
+let myPlayerName = null, fbDb = null, presenceRef = null, presenceInterval = null;
+const remotePlayers = {};
 let joystickVec = { x: 0, y: 0 };
 let introActive = true, introT = 0, introCar = null;
 const INTRO_DURATION = 6.5;
@@ -756,6 +759,7 @@ function endIntro() {
   document.getElementById("btnSkipIntro").style.display = "none";
   player.visible = camMode !== "first";
   toast("Bem-vindo a Pine Valley! 🌲");
+  if (!myPlayerName) setTimeout(() => askPlayerName(), 1200);
 }
 
 function carShouldBrake(carPos, dirNorm) {
@@ -1507,6 +1511,9 @@ function handleUIAction(action, arg) {
     case "discardCurrentOrder": discardCurrentOrder(); break;
     case "buyFood": buyFood(Number(arg)); break;
     case "pedestrianReply": pedestrianReply(Number(arg)); break;
+    case "confirmName": confirmPlayerName(); break;
+    case "searchFriend": searchFriend(); break;
+    case "addFriend": addFriend(arg); break;
   }
 }
 
@@ -1992,11 +1999,159 @@ function employeePick(i) {
   }
 }
 
+/* ================= AMIGOS / MULTIPLAYER (Firebase) ================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyBsGZkWepzNFmoeZ40Ya2rD7isZmdu98BI",
+  authDomain: "pine-valley-7534a.firebaseapp.com",
+  databaseURL: "https://pine-valley-7534a-default-rtdb.firebaseio.com",
+  projectId: "pine-valley-7534a",
+  storageBucket: "pine-valley-7534a.firebasestorage.app",
+  messagingSenderId: "296754747453",
+  appId: "1:296754747453:web:20ef77a3f0e8fdc6d3b254",
+  measurementId: "G-DHGLNLE4EY",
+};
+try {
+  firebase.initializeApp(firebaseConfig);
+  fbDb = firebase.database();
+} catch (err) {
+  console.error("Erro ao iniciar Firebase:", err);
+  fbDb = null;
+}
+
+function askPlayerName() {
+  openModal(`
+    <h2>👤 Seu nome de jogador</h2>
+    <p class="note">Esse nome é como outros jogadores vão te encontrar. Escolha um nome único!</p>
+    <input id="nameInput" type="text" maxlength="16" placeholder="Digite seu nome"
+      style="width:100%;padding:8px;font-family:inherit;font-size:14px;margin-bottom:8px;background:#111;color:#fff;border:1px solid #555;" />
+    <button data-action="confirmName">Confirmar</button>
+  `);
+}
+function confirmPlayerName() {
+  const input = document.getElementById("nameInput");
+  const name = ((input && input.value) || "").trim().slice(0, 16);
+  if (!name) { toast("Digite um nome válido."); return; }
+  myPlayerName = name;
+  try { localStorage.setItem("pineValleyName", name); } catch (err) { /* sem suporte a localStorage, sem problema */ }
+  closeModal();
+  registerPresence();
+  toast(`Bem-vindo, ${name}!`);
+}
+function registerPresence() {
+  if (!fbDb || !myPlayerName) return;
+  try {
+    presenceRef = fbDb.ref("players/" + myPlayerName);
+    presenceRef.onDisconnect().remove();
+    updatePresence();
+    clearInterval(presenceInterval);
+    presenceInterval = setInterval(updatePresence, 2000);
+    setupPlayersListener();
+  } catch (err) { console.error("Erro ao registrar presença:", err); }
+}
+function updatePresence() {
+  if (!presenceRef) return;
+  try {
+    presenceRef.set({ x: player.position.x, z: player.position.z, area: currentArea, ts: Date.now() })
+      .catch(err => console.error("Erro ao atualizar presença:", err));
+  } catch (err) { console.error("Erro ao atualizar presença:", err); }
+}
+
+function setupPlayersListener() {
+  if (!fbDb) return;
+  try {
+    fbDb.ref("players").on("value", (snap) => {
+      const data = snap.val() || {};
+      const now = Date.now();
+      Object.keys(data).forEach(name => {
+        if (name === myPlayerName) return;
+        const d = data[name];
+        if (!d || now - (d.ts || 0) > 10000 || d.area !== currentArea) { removeRemotePlayer(name); return; }
+        if (!remotePlayers[name]) {
+          remotePlayers[name] = createRemotePlayerMesh(name);
+          scene.add(remotePlayers[name].group);
+        }
+        remotePlayers[name].group.position.set(d.x, 0, d.z);
+      });
+      Object.keys(remotePlayers).forEach(name => { if (!data[name]) removeRemotePlayer(name); });
+    });
+  } catch (err) { console.error("Erro ao escutar jogadores:", err); }
+}
+function createRemotePlayerMesh(name) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,1.5,12), new THREE.MeshLambertMaterial({ color: 0x66ddaa }));
+  body.position.y = 0.9; group.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.4,12,12), new THREE.MeshLambertMaterial({ color: 0xf2c49b }));
+  head.position.y = 1.85; group.add(head);
+  const label = makeTextSprite(name, { fontsize: 34, scale: 1.6, bg: "rgba(20,120,100,0.75)" });
+  label.position.y = 2.6; group.add(label);
+  return { group };
+}
+function removeRemotePlayer(name) {
+  if (remotePlayers[name]) { scene.remove(remotePlayers[name].group); delete remotePlayers[name]; }
+}
+
+function openFriendSearch() {
+  openModal(`
+    <h2>👥 Amigos</h2>
+    <input id="friendSearchInput" type="text" maxlength="16" placeholder="Nome do jogador"
+      style="width:100%;padding:8px;font-family:inherit;font-size:14px;margin-bottom:8px;background:#111;color:#fff;border:1px solid #555;" />
+    <button data-action="searchFriend">Buscar</button>
+    <div id="friendSearchResult" style="margin-top:10px;"></div>
+    <div style="margin-top:14px;"><b>Seus amigos:</b></div>
+    <div id="friendListArea" class="note">Carregando...</div>
+  `);
+  renderFriendList();
+}
+function searchFriend() {
+  if (!fbDb) { toast("Conexão com o servidor de amigos indisponível."); return; }
+  const input = document.getElementById("friendSearchInput");
+  const name = ((input && input.value) || "").trim();
+  if (!name) return;
+  fbDb.ref("players/" + name).once("value").then(snap => {
+    const el = document.getElementById("friendSearchResult");
+    if (!el) return;
+    if (!snap.exists()) { el.innerHTML = `<p class="note">Nenhum jogador online com esse nome agora.</p>`; return; }
+    const online = (Date.now() - (snap.val().ts || 0)) < 15000;
+    el.innerHTML = `<p>${name} — ${online ? "🟢 online" : "🔴 offline"}</p>
+      <button data-action="addFriend" data-arg="${name}">Adicionar como amigo</button>`;
+  }).catch(err => { console.error("Erro na busca:", err); toast("Erro ao buscar jogador."); });
+}
+function addFriend(name) {
+  if (!fbDb || !myPlayerName || name === myPlayerName) return;
+  fbDb.ref(`friendships/${myPlayerName}/${name}`).set(true)
+    .then(() => { toast(`${name} adicionado como amigo!`); renderFriendList(); })
+    .catch(err => { console.error(err); toast("Erro ao adicionar amigo."); });
+}
+function renderFriendList() {
+  if (!fbDb || !myPlayerName) return;
+  fbDb.ref(`friendships/${myPlayerName}`).once("value").then(async (snap) => {
+    const el = document.getElementById("friendListArea");
+    if (!el) return;
+    if (!snap.exists()) { el.innerHTML = `Nenhum amigo adicionado ainda.`; return; }
+    const names = Object.keys(snap.val());
+    const rows = [];
+    for (const n of names) {
+      try {
+        const s = await fbDb.ref("players/" + n).once("value");
+        const online = s.exists() && (Date.now() - (s.val().ts || 0)) < 15000;
+        rows.push(`<div>${n} — ${online ? "🟢 online" : "🔴 offline"}</div>`);
+      } catch (err) { rows.push(`<div>${n} — ❓</div>`); }
+    }
+    el.innerHTML = rows.join("") || "Nenhum amigo adicionado ainda.";
+  }).catch(err => console.error("Erro ao carregar amigos:", err));
+}
+
 /* ================= START ================= */
 handleResize();
 refreshHUD();
 document.getElementById("btnSkipIntro").addEventListener("click", endIntro);
 document.getElementById("btnSkipIntro").addEventListener("touchstart", (ev) => { ev.preventDefault(); endIntro(); });
+document.getElementById("btnFriends").addEventListener("click", () => {
+  if (!myPlayerName) { toast("Escolha seu nome de jogador primeiro!"); askPlayerName(); return; }
+  openFriendSearch();
+});
+try { myPlayerName = localStorage.getItem("pineValleyName"); } catch (err) { myPlayerName = null; }
+if (myPlayerName) registerPresence();
 startIntro();
 </script>
 </body>
