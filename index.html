@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <title>Pine Valley</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-database-compat.js"></script>
 <style>
   * { box-sizing: border-box; }
   html, body {
@@ -80,9 +82,21 @@
   }
   #stageHud .seq span { opacity: 1; font-size: 20px; margin: 0 2px; }
   #stageHud .seq span.done { opacity: 0.25; }
+  #mainMenu {
+    position: absolute; inset: 0; z-index: 60; background: rgba(10,15,25,0.92);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  }
+  #mainMenuTitle {
+    font-size: 30px; color: #ffd166; text-shadow: 3px 3px 0 #000; letter-spacing: 2px; margin-bottom: 12px;
+  }
+  .menuBtn {
+    font-family: inherit; font-size: 15px; font-weight: bold; padding: 12px 28px;
+    border: 2px solid #000; cursor: pointer; background: #ffd166; color: #1a1a2e; min-width: 220px;
+  }
+  .menuBtn:last-of-type { background: #4dd0e1; }
   #modalOverlay {
     position: absolute; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.75);
-    display: none; align-items: center; justify-content: center;
+    display: none; align-items: center; justify-content: center; z-index: 50;
   }
   #modalBox {
     background: #23233a; border: 3px solid #ffd166; padding: 18px 20px;
@@ -124,6 +138,11 @@
 <h1>🌲 PINE VALLEY</h1>
 
 <div id="gameWrap">
+  <div id="mainMenu">
+    <div id="mainMenuTitle">🌲 Pine Valley</div>
+    <button id="btnPlaySolo" class="menuBtn">🎮 Jogar Sozinho</button>
+    <button id="btnPlayFriends" class="menuBtn">👥 Jogar com Amigos</button>
+  </div>
   <div id="hud">
     <div>🕐 <span id="hudTime">06:00</span> · Dia <span id="hudDay">1</span> · 💰 R$<span id="hudMoney">0</span> · <span id="hudJob" style="color:#ffd166">Atendente</span></div>
     <div class="skillbar-row">
@@ -146,6 +165,7 @@
   <div id="toast"></div>
   <div id="stageHud"></div>
   <div id="modalOverlay"><div id="modalBox"></div></div>
+  <button id="btnFriends" style="position:absolute;top:6px;right:10px;z-index:7;font-family:inherit;background:#4dd0e1;color:#1a1a2e;border:none;padding:6px 12px;font-size:12px;font-weight:bold;cursor:pointer;">👥 Amigos</button>
   <div id="joystickBase"><div id="joystickThumb"></div></div>
   <button id="btnInteract" class="touchBtn">E<br>agir</button>
   <button id="btnJump" class="touchBtn">⬆️</button>
@@ -157,7 +177,9 @@
 
 <script>
 /* ================= ESTADO ================= */
-let orderState = null, decisionState = null, quizState = null;
+let orderState = null, decisionState = null, quizState = null, nurseState = null;
+let myPlayerName = null, fbDb = null, presenceRef = null, presenceInterval = null;
+const remotePlayers = {};
 let joystickVec = { x: 0, y: 0 };
 let introActive = true, introT = 0, introCar = null;
 const INTRO_DURATION = 6.5;
@@ -174,7 +196,7 @@ let modalOpen = false, minigameMode = null;
 const state = {
   day: 1, money: 40, jobTier: 0, daysAtJob: 0,
   skills: { culinaria: 0, construcao: 0, robotica: 0 },
-  workedToday: false,
+  workCount: 0, nurseWorkCount: 0, studyBonus: 0,
   saude: 100, fome: 100,
 };
 
@@ -214,43 +236,79 @@ const QUIZ_BANKS = {
   ],
 };
 
+const EMPLOYEE_NAMES = {
+  construtora: ["Carlos", "Marta", "João", "Renata", "Pedro", "Fábio", "Luana", "Diego"],
+  robotics: ["Ana", "Lucas", "Bia", "Rafael", "Sofia", "Marcos", "Iris", "Thiago"],
+};
 const EMPLOYEE_SCENARIOS = {
   construtora: [
-    { employee: "Carlos, pedreiro", line: "Trabalho aqui há meses e ainda ganho o mesmo. Dá pra rever meu salário?",
+    { role: "pedreiro", line: "Trabalho aqui há meses e ainda ganho o mesmo. Dá pra rever meu salário?",
       options: [ { label: "Conceder um aumento justo", score: 90 }, { label: "Negar sem justificar", score: 20 }, { label: "Prometer avaliar no próximo mês", score: 55 } ] },
-    { employee: "Marta, engenheira", line: "O prazo da obra está apertado e a equipe está sobrecarregada.",
+    { role: "engenheira", line: "O prazo da obra está apertado e a equipe está sobrecarregada.",
       options: [ { label: "Contratar reforço temporário", score: 85 }, { label: "Pedir pra equipe fazer hora extra", score: 45 }, { label: "Ignorar e manter o prazo", score: 15 } ] },
-    { employee: "João, mestre de obras", line: "Parabéns pela obra do mês passado, ficou ótima!",
+    { role: "mestre de obras", line: "Parabéns pela obra do mês passado, ficou ótima!",
       options: [ { label: "Agradecer e elogiar o time também", score: 95 }, { label: "Aceitar o elogio sem comentar", score: 60 }, { label: "Dizer que podia ser melhor", score: 25 } ] },
-    { employee: "Renata, arquiteta", line: "Podemos usar um material mais sustentável no próximo projeto?",
+    { role: "arquiteta", line: "Podemos usar um material mais sustentável no próximo projeto?",
       options: [ { label: "Aprovar e revisar o orçamento", score: 88 }, { label: "Dizer que vai pensar depois", score: 50 }, { label: "Recusar por causa do custo", score: 22 } ] },
-    { employee: "Pedro, operário", line: "Alguns equipamentos de segurança estão desgastados.",
+    { role: "operário", line: "Alguns equipamentos de segurança estão desgastados.",
       options: [ { label: "Trocar os equipamentos imediatamente", score: 98 }, { label: "Trocar só quando quebrar de vez", score: 30 }, { label: "Ignorar, ainda dá pra usar", score: 5 } ] },
   ],
   robotics: [
-    { employee: "Ana, engenheira de software", line: "Estou entregando ótimos resultados, acho que mereço um aumento.",
+    { role: "engenheira de software", line: "Estou entregando ótimos resultados, acho que mereço um aumento.",
       options: [ { label: "Conceder aumento e reconhecer o mérito", score: 92 }, { label: "Negar sem dar retorno", score: 18 }, { label: "Oferecer bônus em vez de aumento fixo", score: 65 } ] },
-    { employee: "Lucas, técnico de robótica", line: "O protótipo está com falha no sensor, isso vai atrasar a entrega.",
+    { role: "técnico de robótica", line: "O protótipo está com falha no sensor, isso vai atrasar a entrega.",
       options: [ { label: "Dar mais tempo pra corrigir com calma", score: 80 }, { label: "Exigir entrega no prazo mesmo com o bug", score: 20 }, { label: "Trazer um especialista externo", score: 90 } ] },
-    { employee: "Bia, designer de produto", line: "O novo design do robô doméstico ficou show, adorei esse projeto!",
+    { role: "designer de produto", line: "O novo design do robô doméstico ficou show, adorei esse projeto!",
       options: [ { label: "Elogiar o trabalho publicamente", score: 95 }, { label: "Só agradecer rapidamente", score: 60 }, { label: "Não comentar nada", score: 20 } ] },
-    { employee: "Rafael, estagiário", line: "Posso propor uma ideia nova pro próximo robô?",
+    { role: "estagiário", line: "Posso propor uma ideia nova pro próximo robô?",
       options: [ { label: "Ouvir a ideia com atenção", score: 90 }, { label: "Dizer que não há tempo agora", score: 35 }, { label: "Pedir pra ele mandar por e-mail", score: 60 } ] },
-    { employee: "Sofia, gerente de produção", line: "Estamos gastando mais que o previsto com peças importadas.",
+    { role: "gerente de produção", line: "Estamos gastando mais que o previsto com peças importadas.",
       options: [ { label: "Buscar fornecedores nacionais", score: 85 }, { label: "Cortar outros custos pra compensar", score: 55 }, { label: "Ignorar e manter como está", score: 15 } ] },
   ],
 };
 
-const PEDESTRIAN_LINES = [
-  "Bom dia! Lindo dia em Pine Valley, não acha?",
-  "Oi! Você não é novo por aqui?",
-  "Com licença, preciso ir trabalhar.",
-  "Boa tarde! O clima está ótimo hoje.",
-  "Oi, tudo bem? Preciso ir andando.",
-  "Já foi na lanchonete nova? Dizem que é boa.",
-  "Cuidado com os carros nessa rua!",
-  "Ei, você trabalha em qual lugar?",
+/* ---------- gerador processual de falas ("IA de mentirinha", sem custo/limite) ---------- */
+function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+const PED_GREETINGS = ["Oi!", "Bom dia!", "Boa tarde!", "E aí!", "Olá!", "Fala!", "Opa!"];
+const PED_COMMENTS = [
+  "lindo dia em Pine Valley, não acha?",
+  "você não é daqui, é?",
+  "com licença, preciso ir trabalhar.",
+  "o clima tá ótimo hoje.",
+  "preciso ir andando, tchau!",
+  "já foi na lanchonete nova? dizem que é boa.",
+  "cuidado com os carros nessa rua!",
+  "você trabalha em qual lugar mesmo?",
+  "essa cidade tá crescendo rápido, hein.",
+  "vi um carro novo passando ali, reparou?",
+  "os prédios novos ficaram bonitos.",
+  "tô com pressa, mas foi bom te ver!",
 ];
+function generatePedestrianLine() {
+  return `${pick(PED_GREETINGS)} ${pick(PED_COMMENTS)}`;
+}
+
+const CUSTOMER_REACTIONS = {
+  praise: {
+    openers: ["Aí sim,", "Nossa,", "Cara,", "Uau,", "Show,", "Mano,"],
+    bodies: ["ficou show esse lanche!", "mandou muito bem!", "ficou perfeito!", "melhor lanche que já comi aqui!", "voltarei sempre!", "ficou top demais!", "com certeza volto amanhã!"],
+  },
+  meh: {
+    openers: ["Hmm,", "Bom,", "Tá,", "Bem,"],
+    bodies: ["podia ser bem melhor...", "faltou algo, acho...", "não ficou como eu esperava...", "deu pra comer, mas não empolgou...", "tá ok, mas não é bem isso não."],
+  },
+  angry: {
+    openers: ["Cara,", "Sério?", "Ei,", "Que isso,", "Poxa,"],
+    bodies: ["não foi isso que eu pedi!", "errou tudo o meu pedido!", "vou falar com o gerente sobre isso!", "isso não tem nada a ver com o que eu pedi!", "nem perto do que eu pedi!"],
+  },
+};
+function generateCustomerLine(kind) {
+  const r = CUSTOMER_REACTIONS[kind];
+  return `${pick(r.openers)} ${pick(r.bodies)}`;
+}
+
+const PEDESTRIAN_LINES = PED_COMMENTS; // mantido por compatibilidade (não usado diretamente mais)
 
 const INGREDIENTS = [
   { key: "bread",   emoji: "🍞", color: 0xdaa15c },
@@ -273,9 +331,6 @@ const RECIPES = [
   { name: "X-Especial",seq: ["bread","egg","bacon","cheese","lettuce","bread"] },
   { name: "X-Tudo",    seq: ["bread","patty","bacon","cheese","lettuce","tomato","onion","bread"] },
 ];
-const CUSTOMER_PRAISE = ["Aí sim, ficou show!", "Mandou muito bem, valeu!", "Nossa, ficou demais esse lanche!", "Show, sempre volto aqui!", "Ficou top, parabéns!"];
-const CUSTOMER_MEH = ["Podia ser bem melhor, hein...", "Acho que faltou alguma coisa aí...", "Tá ok, mas não era bem isso não."];
-const CUSTOMER_ANGRY = ["Cara, não foi isso que eu pedi!", "Errou tudo o meu pedido, sério?", "Vou falar com o gerente sobre isso!", "Que isso, nem perto do que eu pedi!"];
 
 /* ================= PRÉDIOS ================= */
 const buildingsData = [
@@ -604,12 +659,32 @@ function updatePedestrians(delta) {
     p.visual.position.y = Math.abs(Math.sin(p.walkPhase)) * 0.32;
   }
 }
+let currentTalkingPedestrian = null;
+const PED_RESPONSE_OPTIONS = [
+  { label: "Que bom! 😊", reactions: ["Fico feliz que ache isso!", "Verdade, né?", "Boa, concordo com você!"] },
+  { label: "Nossa, sério?", reactions: ["Pois é, é isso mesmo!", "Sim, várias novidades por aqui.", "É o que dizem por aí!"] },
+  { label: "Preciso ir, tchau!", reactions: ["Tchau! Até mais!", "Foi bom falar com você!", "Se cuida!"] },
+];
 function talkToPedestrian(p) {
   if (p.talking) return;
   p.paused = true; p.talking = true;
-  const line = PEDESTRIAN_LINES[Math.floor(Math.random() * PEDESTRIAN_LINES.length)];
+  currentTalkingPedestrian = p;
+  const line = generatePedestrianLine();
   say("Morador de Pine Valley", line, { pitch: 1.1, rate: 1.0 });
-  setTimeout(() => { p.paused = false; p.talking = false; }, 2600);
+  setTimeout(() => openPedestrianOptions(), 1300);
+}
+function openPedestrianOptions() {
+  const optsHtml = PED_RESPONSE_OPTIONS.map((o, i) =>
+    `<div><button data-action="pedestrianReply" data-arg="${i}">${o.label}</button></div>`).join("");
+  openModal(`<h2>💬 Conversar</h2><p class="note">Como você responde?</p>${optsHtml}`);
+}
+function pedestrianReply(i) {
+  closeModal();
+  const opt = PED_RESPONSE_OPTIONS[i];
+  say("Morador de Pine Valley", pick(opt.reactions), { pitch: 1.1, rate: 1.0 });
+  const p = currentTalkingPedestrian;
+  currentTalkingPedestrian = null;
+  setTimeout(() => { if (p) { p.paused = false; p.talking = false; } }, 2200);
 }
 
 /* ---------- carros ---------- */
@@ -889,7 +964,10 @@ const interiorDefs = {
     label: "Hospital de Pine Valley", anchor: { x: 80, z: 200 }, w: 12, d: 9, floor: 0xf5f5f5, wall: 0xe0546a,
     entryLocal: { x: 0, z: 4.0 }, exitLocal: { x: 0, z: 4.4 }, exitR: 1.7,
     obstacles: [ { x: 0, z: -3.0, w: 6, d: 1 }, { x: -4.5, z: 0, w: 1.4, d: 2.4 } ],
-    hotspots: [ { id: "recepcao", x: 0, z: -2.6, r: 1.8, icon: "🏥", label: "receber atendimento", action: "hospital" } ],
+    hotspots: [
+      { id: "recepcao", x: 0, z: -2.6, r: 1.8, icon: "🏥", label: "receber atendimento", action: "hospital" },
+      { id: "enfermagem", x: -4.5, z: 2.2, r: 1.7, icon: "💉", label: "trabalhar como enfermeiro", action: "nurse" },
+    ],
     buildFurniture(g) {
       const desk = boxMesh(6, 0.9, 1, 0xffffff); desk.position.set(0, 0.45, -3.0); g.add(desk);
       const bed = boxMesh(1.6, 0.6, 3, 0xffffff); bed.position.set(-4.5, 0.3, 0.5); g.add(bed);
@@ -1187,6 +1265,7 @@ function handleHotspot(h) {
   if (h.action === "work") return tryStartWork(currentArea);
   if (h.action === "market") return openMarket();
   if (h.action === "hospital") return healAtHospital();
+  if (h.action === "nurse") return tryStartNurseJob();
 }
 
 /* ================= CICLO DIA/NOITE ================= */
@@ -1246,7 +1325,7 @@ function faintFromHunger() {
   currentArea = "town";
   player.position.set(home.x, 0, home.z + home.d/2 + 2.6);
   state.saude = 50; state.fome = 35;
-  state.day += 1; state.workedToday = false;
+  state.day += 1; state.workCount = 0; state.nurseWorkCount = 0;
   timeOfDay = 7;
   refreshHUD();
   openModal(`<h2>😵 Você desmaiou de fome!</h2><p>Alguém te levou pra casa. Acordou com a vida e a fome parcialmente recuperadas, mas perdeu o dia de hoje.</p><p class="note">Coma no Mercadinho pra evitar isso!</p>`);
@@ -1425,7 +1504,11 @@ function toast(msg, ms=2600) {
 /* ================= MODAL ================= */
 const overlay = document.getElementById("modalOverlay");
 const box = document.getElementById("modalBox");
-function closeModal() { modalOpen = false; overlay.style.display = "none"; }
+let inPreGameFlow = false;
+function closeModal() {
+  modalOpen = false; overlay.style.display = "none";
+  if (inPreGameFlow) { inPreGameFlow = false; document.getElementById("mainMenu").style.display = "flex"; }
+}
 function openModal(html) {
   modalOpen = true; overlay.style.display = "flex";
   box.innerHTML = html + '<div><button class="closeBtn" data-action="closeModal">Fechar</button></div>';
@@ -1447,11 +1530,16 @@ function handleUIAction(action, arg) {
     case "answerQuiz": answerQuiz(Number(arg)); break;
     case "discardCurrentOrder": discardCurrentOrder(); break;
     case "buyFood": buyFood(Number(arg)); break;
+    case "pedestrianReply": pedestrianReply(Number(arg)); break;
+    case "confirmName": confirmPlayerName(); break;
+    case "searchFriend": searchFriend(); break;
+    case "addFriend": addFriend(arg); break;
+    case "enterGameWithFriends": enterGameWithFriends(); break;
   }
 }
 
 function sleepAndAdvance() {
-  state.day += 1; state.workedToday = false;
+  state.day += 1; state.workCount = 0; state.nurseWorkCount = 0;
   timeOfDay = 6.5;
   toast("Um novo dia começou ☀️");
 }
@@ -1459,7 +1547,7 @@ function sleepAndAdvance() {
 function tryStartWork(buildingId) {
   const job = jobTiers[state.jobTier];
   if (job.building !== buildingId) { toast("Seu cargo atual não trabalha aqui."); return; }
-  if (state.workedToday) { toast("Você já trabalhou hoje. Durma para avançar o dia."); return; }
+  if (state.workCount >= 2) { toast("Você já trabalhou 2 vezes hoje. Durma para trabalhar de novo."); return; }
   if (buildingId === "lanchonete") startOrderGame3D(buildingId);
   else startEmployeeGame3D(buildingId);
 }
@@ -1470,8 +1558,9 @@ function finishShift(performance) {
   const earned = Math.round(job.pay * 0.5) + bonus;
   state.money += earned;
   state.daysAtJob += 1;
-  state.workedToday = true;
-  const gain = Math.round((performance/100) * 6) + 2;
+  state.workCount += 1;
+  const baseGain = Math.round((performance/100) * 6) + 2;
+  const gain = Math.round(baseGain * (1 + state.studyBonus / 100));
   state.skills[job.skill] += gain;
   refreshHUD();
   checkPromotion();
@@ -1479,7 +1568,8 @@ function finishShift(performance) {
     <h2>Turno concluído!</h2>
     <p>Desempenho: <b>${performance}%</b></p>
     <p>Você ganhou <b>R$${earned}</b></p>
-    <p class="note">Volte pra casa e durma pra avançar o dia, ou compre um curso no computador.</p>
+    <p>XP ganho: <b>+${gain} ${job.skill}</b>${state.studyBonus > 0 ? ` <span class="note">(bônus de estudo: +${state.studyBonus}%)</span>` : ""}</p>
+    <p class="note">Você pode trabalhar mais ${Math.max(0, 2 - state.workCount)}x hoje neste emprego, ou dormir pra avançar o dia.</p>
   `);
 }
 
@@ -1513,7 +1603,7 @@ function openComputer() {
     <div class="item"><b>${c.name}</b> — R$${c.cost} (${c.skill})
       <div><button ${state.money < c.cost ? "disabled" : ""} data-action="startCourse" data-arg="${i}">Comprar e estudar</button></div>
     </div>`).join("");
-  openModal(`<h2>💻 Computador</h2><p class="note">Compre cursos online e responda o quiz pra aprender de verdade.</p>${list}`);
+  openModal(`<h2>💻 Computador</h2><p class="note">Compre cursos online e responda o quiz pra aprender de verdade. Bônus de XP atual nos empregos: <b>+${state.studyBonus}%</b></p>${list}`);
 }
 function startCourse(i) {
   const c = COURSES[i];
@@ -1535,7 +1625,8 @@ function answerQuiz(i) {
   if (i === q.correct) {
     quizState.correctCount += 1;
     state.skills[quizState.skill] += 6;
-    toast("✅ Correto! +6 " + quizState.skill);
+    state.studyBonus = Math.min(50, state.studyBonus + 1);
+    toast("✅ Correto! +6 " + quizState.skill + " · bônus de XP: +" + state.studyBonus + "%");
   } else {
     toast("❌ Não era essa...");
   }
@@ -1543,7 +1634,7 @@ function answerQuiz(i) {
   refreshHUD();
   checkPromotion();
   if (quizState.index >= quizState.questions.length) {
-    openModal(`<h2>📚 Curso concluído!</h2><p>Você acertou ${quizState.correctCount}/${quizState.questions.length} perguntas.</p>`);
+    openModal(`<h2>📚 Curso concluído!</h2><p>Você acertou ${quizState.correctCount}/${quizState.questions.length} perguntas.</p><p class="note">Seu bônus de XP nos empregos agora é <b>+${state.studyBonus}%</b>.</p>`);
     quizState = null;
   } else {
     renderQuizQuestion();
@@ -1763,9 +1854,9 @@ function deliverCurrentOrder() {
     const accuracy = Math.round((matches / seq.length) * 100);
     orderScore = accuracy;
     if (accuracy === 100) orderScore = Math.min(100, orderScore + Math.min(20, Math.round((orderState.timeLeft/32)*20)));
-    const line = accuracy === 100 ? CUSTOMER_PRAISE[Math.floor(Math.random()*CUSTOMER_PRAISE.length)]
-      : accuracy >= 50 ? CUSTOMER_MEH[Math.floor(Math.random()*CUSTOMER_MEH.length)]
-      : CUSTOMER_ANGRY[Math.floor(Math.random()*CUSTOMER_ANGRY.length)];
+    const line = accuracy === 100 ? generateCustomerLine("praise")
+      : accuracy >= 50 ? generateCustomerLine("meh")
+      : generateCustomerLine("angry");
     say("Cliente", line, { pitch: 1.15, rate: 1.05 });
     front.state = "poppingOut"; front.t = 0; front.duration = 0.3;
   }
@@ -1777,12 +1868,100 @@ function deliverCurrentOrder() {
 }
 
 /* ---------- MINIGAME CONSTRUTORA/ROBOTICS: gestão de equipe ---------- */
+/* ---------- MINIGAME BICO: ENFERMEIRO NO HOSPITAL ---------- */
+const NURSE_PAY_BASE = 60;
+const PATIENT_CASES = [
+  { symptom: "Febre alta 🤒", options: [ { label: "Dar remédio pra febre", correct: true }, { label: "Colocar gesso", correct: false }, { label: "Ignorar e mandar embora", correct: false } ] },
+  { symptom: "Braço quebrado 🦴", options: [ { label: "Colocar gesso", correct: true }, { label: "Dar xarope", correct: false }, { label: "Aplicar band-aid", correct: false } ] },
+  { symptom: "Corte no dedo 🩹", options: [ { label: "Limpar e enfaixar", correct: true }, { label: "Fazer cirurgia", correct: false }, { label: "Dar remédio pra febre", correct: false } ] },
+  { symptom: "Dor de garganta 🤧", options: [ { label: "Dar xarope", correct: true }, { label: "Colocar gesso", correct: false }, { label: "Aplicar band-aid", correct: false } ] },
+  { symptom: "Tontura e fraqueza 😵", options: [ { label: "Medir pressão e dar água", correct: true }, { label: "Fazer cirurgia", correct: false }, { label: "Colocar gesso", correct: false } ] },
+  { symptom: "Alergia na pele 🌡️", options: [ { label: "Dar pomada antialérgica", correct: true }, { label: "Aplicar band-aid", correct: false }, { label: "Dar xarope", correct: false } ] },
+];
+function tryStartNurseJob() {
+  if (state.nurseWorkCount >= 2) { toast("Você já atendeu pacientes 2 vezes hoje. Volte amanhã!"); return; }
+  startNurseGame3D();
+}
+function startNurseGame3D() {
+  const ig = interiorGroups["hospital"];
+  const def = ig.def;
+  enterMinigame({ x: def.anchor.x - 4.5, z: def.anchor.z + 0.5 }, 11);
+  const chosen = [...PATIENT_CASES].sort(() => Math.random() - 0.5).slice(0, 4);
+  nurseState = { cases: chosen, index: 0, score: 0, podiums: [], patientMesh: null, ig };
+  renderNurseScene();
+}
+function renderNurseScene() {
+  const ig = nurseState.ig;
+  nurseState.podiums.forEach(p => ig.minigameGroup.remove(p.group));
+  nurseState.podiums = [];
+  if (nurseState.patientMesh) { ig.minigameGroup.remove(nurseState.patientMesh); nurseState.patientMesh = null; }
+
+  const c = nurseState.cases[nurseState.index];
+  const pat = createPersonBust(0xf2c49b, 0x33291f, 0xffffff);
+  pat.position.set(-4.5, 2.0, 1.0);
+  setGroupOpacity(pat, 1);
+  ig.minigameGroup.add(pat);
+  nurseState.patientMesh = pat;
+  say("Paciente", `Estou com: ${c.symptom}`, { pitch: 1.2, rate: 1.0 });
+
+  const opts = [...c.options].sort(() => Math.random() - 0.5);
+  opts.forEach((o, i) => {
+    const g = new THREE.Group();
+    const podium = boxMesh(2.0, 1.6, 2.0, 0x66bbaa);
+    podium.position.y = 0.8; g.add(podium);
+    const lbl = makeTextSprite(o.label, { fontsize: 24, scale: 1.5, bg: "rgba(20,40,30,0.9)" });
+    lbl.position.y = 2.0; g.add(lbl);
+    g.position.set(-4.5 + (i - 1) * 3.6, 0, -1.6);
+    g.userData.correct = o.correct;
+    ig.minigameGroup.add(g);
+    nurseState.podiums.push({ group: g });
+  });
+  clickHandler = (ray) => {
+    const objs = nurseState.podiums.map(p => p.group.children).flat();
+    const hit = ray.intersectObjects(objs)[0];
+    if (hit) {
+      let obj = hit.object;
+      while (obj.parent && obj.userData.correct === undefined) obj = obj.parent;
+      if (obj.userData.correct !== undefined) nursePick(obj.userData.correct);
+    }
+  };
+  document.getElementById("stageHud").innerHTML = `
+    <div><b>💉 Paciente ${nurseState.index + 1}/${nurseState.cases.length}</b></div>
+    <div>${c.symptom}</div>
+    <div class="note">Escolha o tratamento certo no pódio</div>`;
+}
+function nursePick(correct) {
+  nurseState.score += correct ? 100 : 0;
+  nurseState.index += 1;
+  if (nurseState.index >= nurseState.cases.length) {
+    const ig = nurseState.ig;
+    const performance = Math.round(nurseState.score / nurseState.cases.length);
+    nurseState.podiums.forEach(p => ig.minigameGroup.remove(p.group));
+    if (nurseState.patientMesh) ig.minigameGroup.remove(nurseState.patientMesh);
+    exitMinigame(ig.minigameGroup);
+    finishNurseShift(performance);
+    nurseState = null;
+  } else {
+    renderNurseScene();
+  }
+}
+function finishNurseShift(performance) {
+  const pay = Math.round(NURSE_PAY_BASE * (performance / 100));
+  state.money += pay;
+  state.nurseWorkCount += 1;
+  refreshHUD();
+  openModal(`<h2>💉 Plantão de enfermagem concluído!</h2><p>Desempenho: <b>${performance}%</b></p><p>Você ganhou <b>R$${pay}</b></p><p class="note">Isso é um bico extra — não interfere no seu emprego principal.</p>`);
+}
+
 function startEmployeeGame3D(buildingId) {
   const ig = interiorGroups[buildingId];
   const def = ig.def;
   enterMinigame({ x: def.anchor.x, z: def.anchor.z - 1.6 }, 12);
   const pool = EMPLOYEE_SCENARIOS[buildingId];
-  const chosen = [...pool].sort(() => Math.random() - 0.5).slice(0, 3);
+  const chosen = [...pool].sort(() => Math.random() - 0.5).slice(0, 3).map(sc => ({
+    ...sc,
+    employee: `${pick(EMPLOYEE_NAMES[buildingId])}, ${sc.role}`,
+  }));
   decisionState = { scenarios: chosen, index: 0, score: 0, podiums: [], employeeMesh: null, buildingId, ig };
   renderEmployeeScene();
 }
@@ -1841,12 +2020,177 @@ function employeePick(i) {
   }
 }
 
+/* ================= AMIGOS / MULTIPLAYER (Firebase) ================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyBsGZkWepzNFmoeZ40Ya2rD7isZmdu98BI",
+  authDomain: "pine-valley-7534a.firebaseapp.com",
+  databaseURL: "https://pine-valley-7534a-default-rtdb.firebaseio.com",
+  projectId: "pine-valley-7534a",
+  storageBucket: "pine-valley-7534a.firebasestorage.app",
+  messagingSenderId: "296754747453",
+  appId: "1:296754747453:web:20ef77a3f0e8fdc6d3b254",
+  measurementId: "G-DHGLNLE4EY",
+};
+try {
+  firebase.initializeApp(firebaseConfig);
+  fbDb = firebase.database();
+} catch (err) {
+  console.error("Erro ao iniciar Firebase:", err);
+  fbDb = null;
+}
+
+function askPlayerName() {
+  openModal(`
+    <h2>👤 Seu nome de jogador</h2>
+    <p class="note">Esse nome é como outros jogadores vão te encontrar. Escolha um nome único!</p>
+    <input id="nameInput" type="text" maxlength="16" placeholder="Digite seu nome"
+      style="width:100%;padding:8px;font-family:inherit;font-size:14px;margin-bottom:8px;background:#111;color:#fff;border:1px solid #555;" />
+    <button data-action="confirmName">Confirmar</button>
+  `);
+}
+function confirmPlayerName() {
+  const input = document.getElementById("nameInput");
+  const name = ((input && input.value) || "").trim().slice(0, 16);
+  if (!name) { toast("Digite um nome válido."); return; }
+  myPlayerName = name;
+  try { localStorage.setItem("pineValleyName", name); } catch (err) { /* sem suporte a localStorage, sem problema */ }
+  registerPresence();
+  toast(`Bem-vindo, ${name}!`);
+  if (inPreGameFlow) openFriendSearch();
+  else closeModal();
+}
+function registerPresence() {
+  if (!fbDb || !myPlayerName) return;
+  try {
+    presenceRef = fbDb.ref("players/" + myPlayerName);
+    presenceRef.onDisconnect().remove();
+    updatePresence();
+    clearInterval(presenceInterval);
+    presenceInterval = setInterval(updatePresence, 2000);
+    setupPlayersListener();
+  } catch (err) { console.error("Erro ao registrar presença:", err); }
+}
+function updatePresence() {
+  if (!presenceRef) return;
+  try {
+    presenceRef.set({ x: player.position.x, z: player.position.z, area: currentArea, ts: Date.now() })
+      .catch(err => console.error("Erro ao atualizar presença:", err));
+  } catch (err) { console.error("Erro ao atualizar presença:", err); }
+}
+
+function setupPlayersListener() {
+  if (!fbDb) return;
+  try {
+    fbDb.ref("players").on("value", (snap) => {
+      const data = snap.val() || {};
+      const now = Date.now();
+      Object.keys(data).forEach(name => {
+        if (name === myPlayerName) return;
+        const d = data[name];
+        if (!d || now - (d.ts || 0) > 10000 || d.area !== currentArea) { removeRemotePlayer(name); return; }
+        if (!remotePlayers[name]) {
+          remotePlayers[name] = createRemotePlayerMesh(name);
+          scene.add(remotePlayers[name].group);
+        }
+        remotePlayers[name].group.position.set(d.x, 0, d.z);
+      });
+      Object.keys(remotePlayers).forEach(name => { if (!data[name]) removeRemotePlayer(name); });
+    });
+  } catch (err) { console.error("Erro ao escutar jogadores:", err); }
+}
+function createRemotePlayerMesh(name) {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.5,0.5,1.5,12), new THREE.MeshLambertMaterial({ color: 0x66ddaa }));
+  body.position.y = 0.9; group.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.4,12,12), new THREE.MeshLambertMaterial({ color: 0xf2c49b }));
+  head.position.y = 1.85; group.add(head);
+  const label = makeTextSprite(name, { fontsize: 34, scale: 1.6, bg: "rgba(20,120,100,0.75)" });
+  label.position.y = 2.6; group.add(label);
+  return { group };
+}
+function removeRemotePlayer(name) {
+  if (remotePlayers[name]) { scene.remove(remotePlayers[name].group); delete remotePlayers[name]; }
+}
+
+function openFriendSearch() {
+  openModal(`
+    <h2>👥 Amigos</h2>
+    ${inPreGameFlow ? `<button data-action="enterGameWithFriends">▶️ Entrar no jogo</button><hr style="border-color:#3a3a55;margin:10px 0;">` : ""}
+    <input id="friendSearchInput" type="text" maxlength="16" placeholder="Nome do jogador"
+      style="width:100%;padding:8px;font-family:inherit;font-size:14px;margin-bottom:8px;background:#111;color:#fff;border:1px solid #555;" />
+    <button data-action="searchFriend">Buscar</button>
+    <div id="friendSearchResult" style="margin-top:10px;"></div>
+    <div style="margin-top:14px;"><b>Seus amigos:</b></div>
+    <div id="friendListArea" class="note">Carregando...</div>
+  `);
+  renderFriendList();
+}
+function enterGameWithFriends() {
+  inPreGameFlow = false;
+  closeModal();
+  document.getElementById("mainMenu").style.display = "none";
+  startIntro();
+}
+function searchFriend() {
+  if (!fbDb) { toast("Conexão com o servidor de amigos indisponível."); return; }
+  const input = document.getElementById("friendSearchInput");
+  const name = ((input && input.value) || "").trim();
+  if (!name) return;
+  fbDb.ref("players/" + name).once("value").then(snap => {
+    const el = document.getElementById("friendSearchResult");
+    if (!el) return;
+    if (!snap.exists()) { el.innerHTML = `<p class="note">Nenhum jogador online com esse nome agora.</p>`; return; }
+    const online = (Date.now() - (snap.val().ts || 0)) < 15000;
+    el.innerHTML = `<p>${name} — ${online ? "🟢 online" : "🔴 offline"}</p>
+      <button data-action="addFriend" data-arg="${name}">Adicionar como amigo</button>`;
+  }).catch(err => { console.error("Erro na busca:", err); toast("Erro ao buscar jogador."); });
+}
+function addFriend(name) {
+  if (!fbDb || !myPlayerName || name === myPlayerName) return;
+  fbDb.ref(`friendships/${myPlayerName}/${name}`).set(true)
+    .then(() => { toast(`${name} adicionado como amigo!`); renderFriendList(); })
+    .catch(err => { console.error(err); toast("Erro ao adicionar amigo."); });
+}
+function renderFriendList() {
+  if (!fbDb || !myPlayerName) return;
+  fbDb.ref(`friendships/${myPlayerName}`).once("value").then(async (snap) => {
+    const el = document.getElementById("friendListArea");
+    if (!el) return;
+    if (!snap.exists()) { el.innerHTML = `Nenhum amigo adicionado ainda.`; return; }
+    const names = Object.keys(snap.val());
+    const rows = [];
+    for (const n of names) {
+      try {
+        const s = await fbDb.ref("players/" + n).once("value");
+        const online = s.exists() && (Date.now() - (s.val().ts || 0)) < 15000;
+        rows.push(`<div>${n} — ${online ? "🟢 online" : "🔴 offline"}</div>`);
+      } catch (err) { rows.push(`<div>${n} — ❓</div>`); }
+    }
+    el.innerHTML = rows.join("") || "Nenhum amigo adicionado ainda.";
+  }).catch(err => console.error("Erro ao carregar amigos:", err));
+}
+
 /* ================= START ================= */
 handleResize();
 refreshHUD();
 document.getElementById("btnSkipIntro").addEventListener("click", endIntro);
 document.getElementById("btnSkipIntro").addEventListener("touchstart", (ev) => { ev.preventDefault(); endIntro(); });
-startIntro();
+document.getElementById("btnFriends").addEventListener("click", () => {
+  if (!myPlayerName) { toast("Escolha seu nome de jogador primeiro!"); askPlayerName(); return; }
+  openFriendSearch();
+});
+try { myPlayerName = localStorage.getItem("pineValleyName"); } catch (err) { myPlayerName = null; }
+if (myPlayerName) registerPresence();
+
+document.getElementById("btnPlaySolo").addEventListener("click", () => {
+  document.getElementById("mainMenu").style.display = "none";
+  startIntro();
+});
+document.getElementById("btnPlayFriends").addEventListener("click", () => {
+  inPreGameFlow = true;
+  document.getElementById("mainMenu").style.display = "none";
+  if (myPlayerName) { openFriendSearch(); } else { askPlayerName(); }
+});
 </script>
 </body>
 </html>
