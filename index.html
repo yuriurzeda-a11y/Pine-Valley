@@ -1532,7 +1532,6 @@ function handleUIAction(action, arg) {
     case "buyFood": buyFood(Number(arg)); break;
     case "pedestrianReply": pedestrianReply(Number(arg)); break;
     case "confirmName": confirmPlayerName(); break;
-    case "searchFriend": searchFriend(); break;
     case "addFriend": addFriend(arg); break;
     case "enterGameWithFriends": enterGameWithFriends(); break;
   }
@@ -2116,14 +2115,20 @@ function openFriendSearch() {
   openModal(`
     <h2>👥 Amigos</h2>
     ${inPreGameFlow ? `<button data-action="enterGameWithFriends">▶️ Entrar no jogo</button><hr style="border-color:#3a3a55;margin:10px 0;">` : ""}
-    <input id="friendSearchInput" type="text" maxlength="16" placeholder="Nome do jogador"
+    <input id="friendSearchInput" type="text" maxlength="16" placeholder="Digite o nome do jogador..."
       style="width:100%;padding:8px;font-family:inherit;font-size:14px;margin-bottom:8px;background:#111;color:#fff;border:1px solid #555;" />
-    <button data-action="searchFriend">Buscar</button>
-    <div id="friendSearchResult" style="margin-top:10px;"></div>
+    <div id="friendSearchResult" style="margin-top:6px;"></div>
     <div style="margin-top:14px;"><b>Seus amigos:</b></div>
     <div id="friendListArea" class="note">Carregando...</div>
   `);
   renderFriendList();
+  const input = document.getElementById("friendSearchInput");
+  if (input) {
+    input.addEventListener("input", () => {
+      clearTimeout(input._debounceTimer);
+      input._debounceTimer = setTimeout(() => liveSearchFriends(input.value.trim()), 250);
+    });
+  }
 }
 function enterGameWithFriends() {
   inPreGameFlow = false;
@@ -2131,19 +2136,23 @@ function enterGameWithFriends() {
   document.getElementById("mainMenu").style.display = "none";
   startIntro();
 }
-function searchFriend() {
-  if (!fbDb) { toast("Conexão com o servidor de amigos indisponível."); return; }
-  const input = document.getElementById("friendSearchInput");
-  const name = ((input && input.value) || "").trim();
-  if (!name) return;
-  fbDb.ref("players/" + name).once("value").then(snap => {
-    const el = document.getElementById("friendSearchResult");
-    if (!el) return;
-    if (!snap.exists()) { el.innerHTML = `<p class="note">Nenhum jogador online com esse nome agora.</p>`; return; }
-    const online = (Date.now() - (snap.val().ts || 0)) < 15000;
-    el.innerHTML = `<p>${name} — ${online ? "🟢 online" : "🔴 offline"}</p>
-      <button data-action="addFriend" data-arg="${name}">Adicionar como amigo</button>`;
-  }).catch(err => { console.error("Erro na busca:", err); toast("Erro ao buscar jogador."); });
+function liveSearchFriends(prefix) {
+  const el = document.getElementById("friendSearchResult");
+  if (!el) return;
+  if (!prefix) { el.innerHTML = ""; return; }
+  if (!fbDb) { el.innerHTML = `<p class="note">Conexão com o servidor indisponível.</p>`; return; }
+  fbDb.ref("players").orderByKey().startAt(prefix).endAt(prefix + "\uf8ff").limitToFirst(8).once("value")
+    .then(snap => {
+      const data = snap.val() || {};
+      const now = Date.now();
+      const names = Object.keys(data).filter(n => n !== myPlayerName);
+      if (names.length === 0) { el.innerHTML = `<p class="note">Nenhum jogador encontrado começando com "${prefix}".</p>`; return; }
+      el.innerHTML = names.map(n => {
+        const online = now - (data[n].ts || 0) < 15000;
+        return `<div class="item">${n} — ${online ? "🟢 online" : "🔴 offline"}
+          <div><button data-action="addFriend" data-arg="${n}">Adicionar como amigo</button></div></div>`;
+      }).join("");
+    }).catch(err => { console.error("Erro na busca:", err); el.innerHTML = `<p class="note">Erro ao buscar.</p>`; });
 }
 function addFriend(name) {
   if (!fbDb || !myPlayerName || name === myPlayerName) return;
