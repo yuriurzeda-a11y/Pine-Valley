@@ -166,6 +166,7 @@
   <div id="stageHud"></div>
   <div id="modalOverlay"><div id="modalBox"></div></div>
   <button id="btnFriends" style="position:absolute;top:6px;right:10px;z-index:7;font-family:inherit;background:#4dd0e1;color:#1a1a2e;border:none;padding:6px 12px;font-size:12px;font-weight:bold;cursor:pointer;">👥 Amigos</button>
+  <button id="btnChat" style="position:absolute;top:6px;right:98px;z-index:7;font-family:inherit;background:#9ccc65;color:#1a1a2e;border:none;padding:6px 12px;font-size:12px;font-weight:bold;cursor:pointer;">💬 Chat</button>
   <div id="joystickBase"><div id="joystickThumb"></div></div>
   <button id="btnInteract" class="touchBtn">E<br>agir</button>
   <button id="btnJump" class="touchBtn">⬆️</button>
@@ -1534,6 +1535,7 @@ function handleUIAction(action, arg) {
     case "confirmName": confirmPlayerName(); break;
     case "addFriend": addFriend(arg); break;
     case "enterGameWithFriends": enterGameWithFriends(); break;
+    case "sendChat": sendChat(); break;
   }
 }
 
@@ -2154,6 +2156,55 @@ function liveSearchFriends(prefix) {
       }).join("");
     }).catch(err => { console.error("Erro na busca:", err); el.innerHTML = `<p class="note">Erro ao buscar.</p>`; });
 }
+
+/* ---------- CHAT GLOBAL ---------- */
+let chatListenerAttached = false;
+function escapeHtml(str) {
+  const div = document.createElement("div");
+  div.textContent = str;
+  return div.innerHTML;
+}
+function openChat() {
+  if (!myPlayerName) { toast("Escolha seu nome de jogador primeiro!"); askPlayerName(); return; }
+  if (!fbDb) { openModal(`<h2>💬 Chat Global</h2><p class="note">Conexão com o servidor indisponível.</p>`); return; }
+  openModal(`
+    <h2>💬 Chat Global</h2>
+    <p class="note">Todo jogador com o jogo aberto agora pode ver essa conversa.</p>
+    <div id="chatMessages" style="max-height:220px;overflow-y:auto;background:#111;padding:8px;margin-bottom:8px;font-size:12px;"></div>
+    <div style="display:flex;gap:6px;">
+      <input id="chatInput" type="text" maxlength="120" placeholder="Digite sua mensagem..."
+        style="flex:1;padding:8px;font-family:inherit;font-size:13px;background:#111;color:#fff;border:1px solid #555;" />
+      <button data-action="sendChat">Enviar</button>
+    </div>
+  `);
+  attachChatListener();
+  const input = document.getElementById("chatInput");
+  if (input) input.addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
+}
+function attachChatListener() {
+  if (!fbDb || chatListenerAttached) return;
+  chatListenerAttached = true;
+  try {
+    fbDb.ref("chat/global").orderByKey().limitToLast(30).on("value", (snap) => {
+      const el = document.getElementById("chatMessages");
+      if (!el) return; // chat fechado no momento, ignora
+      const data = snap.val() || {};
+      const msgs = Object.values(data).sort((a, b) => a.ts - b.ts);
+      el.innerHTML = msgs.map(m => `<div><b>${escapeHtml(m.name)}:</b> ${escapeHtml(m.text)}</div>`).join("")
+        || `<p class="note">Nenhuma mensagem ainda. Diga oi!</p>`;
+      el.scrollTop = el.scrollHeight;
+    }, (err) => { console.error("Erro no chat:", err); toast("Erro ao carregar o chat."); });
+  } catch (err) { console.error("Erro ao conectar no chat:", err); }
+}
+function sendChat() {
+  const input = document.getElementById("chatInput");
+  const text = ((input && input.value) || "").trim().slice(0, 120);
+  if (!text || !fbDb || !myPlayerName) return;
+  fbDb.ref("chat/global").push({ name: myPlayerName, text, ts: Date.now() })
+    .catch(err => { console.error("Erro ao enviar mensagem:", err); toast("Erro ao enviar mensagem."); });
+  input.value = "";
+}
+
 function addFriend(name) {
   if (!fbDb || !myPlayerName || name === myPlayerName) return;
   fbDb.ref(`friendships/${myPlayerName}/${name}`).set(true)
@@ -2188,6 +2239,7 @@ document.getElementById("btnFriends").addEventListener("click", () => {
   if (!myPlayerName) { toast("Escolha seu nome de jogador primeiro!"); askPlayerName(); return; }
   openFriendSearch();
 });
+document.getElementById("btnChat").addEventListener("click", openChat);
 try { myPlayerName = localStorage.getItem("pineValleyName"); } catch (err) { myPlayerName = null; }
 if (myPlayerName) registerPresence();
 
