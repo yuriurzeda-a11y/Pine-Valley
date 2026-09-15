@@ -1536,6 +1536,10 @@ function handleUIAction(action, arg) {
     case "addFriend": addFriend(arg); break;
     case "enterGameWithFriends": enterGameWithFriends(); break;
     case "sendChat": sendChat(); break;
+    case "createRoom": createRoom(); break;
+    case "joinRoomPrompt": joinRoomPrompt(); break;
+    case "leaveRoom": leaveRoom(); break;
+    case "inviteToRoom": inviteToRoom(arg); break;
   }
 }
 
@@ -2040,6 +2044,13 @@ try {
   fbDb = null;
 }
 
+let currentRoomId = null;
+let playersListenerRef = null;
+
+function presencePath() { return currentRoomId ? `rooms/${currentRoomId}/players/${myPlayerName}` : `players/${myPlayerName}`; }
+function playersListPath() { return currentRoomId ? `rooms/${currentRoomId}/players` : `players`; }
+function chatPath() { return currentRoomId ? `rooms/${currentRoomId}/chat` : `chat/global`; }
+
 function askPlayerName() {
   openModal(`
     <h2>👤 Seu nome de jogador</h2>
@@ -2063,26 +2074,33 @@ function confirmPlayerName() {
 function registerPresence() {
   if (!fbDb || !myPlayerName) return;
   try {
-    presenceRef = fbDb.ref("players/" + myPlayerName);
+    if (presenceRef) { try { presenceRef.onDisconnect().cancel(); } catch (e) {} }
+    presenceRef = fbDb.ref(presencePath());
     presenceRef.onDisconnect().remove();
+    fbDb.ref("directory/" + myPlayerName).onDisconnect().remove();
     updatePresence();
     clearInterval(presenceInterval);
     presenceInterval = setInterval(updatePresence, 2000);
     setupPlayersListener();
-  } catch (err) { console.error("Erro ao registrar presença:", err); }
+  } catch (err) { console.error("Erro ao registrar presença:", err); toast("Erro ao conectar multiplayer."); }
 }
 function updatePresence() {
-  if (!presenceRef) return;
+  if (!presenceRef || !myPlayerName) return;
   try {
     presenceRef.set({ x: player.position.x, z: player.position.z, area: currentArea, ts: Date.now() })
       .catch(err => console.error("Erro ao atualizar presença:", err));
+    fbDb.ref("directory/" + myPlayerName).set({ ts: Date.now(), inRoom: currentRoomId || null })
+      .catch(err => console.error("Erro no diretório:", err));
   } catch (err) { console.error("Erro ao atualizar presença:", err); }
 }
 
 function setupPlayersListener() {
   if (!fbDb) return;
   try {
-    fbDb.ref("players").on("value", (snap) => {
+    if (playersListenerRef) playersListenerRef.off();
+    Object.keys(remotePlayers).forEach(removeRemotePlayer);
+    playersListenerRef = fbDb.ref(playersListPath());
+    playersListenerRef.on("value", (snap) => {
       const data = snap.val() || {};
       const now = Date.now();
       Object.keys(data).forEach(name => {
@@ -2096,7 +2114,7 @@ function setupPlayersListener() {
         remotePlayers[name].group.position.set(d.x, 0, d.z);
       });
       Object.keys(remotePlayers).forEach(name => { if (!data[name]) removeRemotePlayer(name); });
-    });
+    }, (err) => console.error("Erro ao escutar jogadores:", err));
   } catch (err) { console.error("Erro ao escutar jogadores:", err); }
 }
 function createRemotePlayerMesh(name) {
@@ -2114,6 +2132,15 @@ function removeRemotePlayer(name) {
 }
 
 function openFriendSearch() {
+  const roomSection = currentRoomId
+    ? `<p>🔒 Você está no servidor privado <b>${currentRoomId}</b></p><button data-action="leaveRoom">Sair do servidor</button>`
+    : `<p class="note">Você está no modo global (todos os jogadores podem se ver).</p>
+       <button data-action="createRoom">➕ Criar servidor privado</button>
+       <div style="display:flex;gap:6px;margin-top:6px;">
+         <input id="roomCodeInput" maxlength="5" placeholder="Código do servidor"
+           style="flex:1;padding:8px;font-family:inherit;font-size:13px;background:#111;color:#fff;border:1px solid #555;text-transform:uppercase;" />
+         <button data-action="joinRoomPrompt">Entrar</button>
+       </div>`;
   openModal(`
     <h2>👥 Amigos</h2>
     ${inPreGameFlow ? `<button data-action="enterGameWithFriends">▶️ Entrar no jogo</button><hr style="border-color:#3a3a55;margin:10px 0;">` : ""}
@@ -2122,6 +2149,9 @@ function openFriendSearch() {
     <div id="friendSearchResult" style="margin-top:6px;"></div>
     <div style="margin-top:14px;"><b>Seus amigos:</b></div>
     <div id="friendListArea" class="note">Carregando...</div>
+    <hr style="border-color:#3a3a55;margin:12px 0;">
+    <div style="margin-bottom:6px;"><b>🔒 Servidor Privado</b></div>
+    ${roomSection}
   `);
   renderFriendList();
   const input = document.getElementById("friendSearchInput");
@@ -2143,7 +2173,7 @@ function liveSearchFriends(prefix) {
   if (!el) return;
   if (!prefix) { el.innerHTML = ""; return; }
   if (!fbDb) { el.innerHTML = `<p class="note">Conexão com o servidor indisponível.</p>`; return; }
-  fbDb.ref("players").orderByKey().startAt(prefix).endAt(prefix + "\uf8ff").limitToFirst(8).once("value")
+  fbDb.ref("directory").orderByKey().startAt(prefix).endAt(prefix + "\uf8ff").limitToFirst(8).once("value")
     .then(snap => {
       const data = snap.val() || {};
       const now = Date.now();
@@ -2157,8 +2187,57 @@ function liveSearchFriends(prefix) {
     }).catch(err => { console.error("Erro na busca:", err); el.innerHTML = `<p class="note">Erro ao buscar.</p>`; });
 }
 
-/* ---------- CHAT GLOBAL ---------- */
-let chatListenerAttached = false;
+/* ---------- SERVIDORES PRIVADOS ---------- */
+function generateRoomCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < 5; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+function createRoom() {
+  if (!fbDb || !myPlayerName) { toast("Escolha seu nome primeiro."); return; }
+  const code = generateRoomCode();
+  fbDb.ref(`rooms/${code}`).set({ owner: myPlayerName, createdAt: Date.now(), members: { [myPlayerName]: true } })
+    .then(() => {
+      currentRoomId = code;
+      registerPresence();
+      chatListenerRef = null;
+      toast(`Servidor criado! Código: ${code}`);
+      openFriendSearch();
+    })
+    .catch(err => { console.error(err); toast("Erro ao criar servidor."); });
+}
+function joinRoomPrompt() {
+  const input = document.getElementById("roomCodeInput");
+  const code = ((input && input.value) || "").trim().toUpperCase();
+  if (!code) return;
+  if (!fbDb || !myPlayerName) { toast("Escolha seu nome primeiro."); return; }
+  fbDb.ref(`rooms/${code}/members/${myPlayerName}`).once("value").then(snap => {
+    if (!snap.exists() || snap.val() !== true) { toast("Você não foi convidado pra esse servidor."); return; }
+    currentRoomId = code;
+    registerPresence();
+    chatListenerRef = null;
+    toast(`Entrou no servidor ${code}!`);
+    openFriendSearch();
+  }).catch(err => { console.error(err); toast("Erro ao entrar no servidor."); });
+}
+function leaveRoom() {
+  if (presenceRef) { try { presenceRef.onDisconnect().cancel(); presenceRef.remove(); } catch (err) {} }
+  currentRoomId = null;
+  registerPresence();
+  chatListenerRef = null;
+  toast("Voltou pro modo global.");
+  openFriendSearch();
+}
+function inviteToRoom(name) {
+  if (!fbDb || !currentRoomId) return;
+  fbDb.ref(`rooms/${currentRoomId}/members/${name}`).set(true)
+    .then(() => toast(`${name} convidado pro servidor!`))
+    .catch(err => { console.error(err); toast("Erro ao convidar."); });
+}
+
+/* ---------- CHAT (global ou de servidor privado) ---------- */
+let chatListenerRef = null;
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
@@ -2166,10 +2245,10 @@ function escapeHtml(str) {
 }
 function openChat() {
   if (!myPlayerName) { toast("Escolha seu nome de jogador primeiro!"); askPlayerName(); return; }
-  if (!fbDb) { openModal(`<h2>💬 Chat Global</h2><p class="note">Conexão com o servidor indisponível.</p>`); return; }
+  if (!fbDb) { openModal(`<h2>💬 Chat</h2><p class="note">Conexão com o servidor indisponível.</p>`); return; }
   openModal(`
-    <h2>💬 Chat Global</h2>
-    <p class="note">Todo jogador com o jogo aberto agora pode ver essa conversa.</p>
+    <h2>💬 ${currentRoomId ? `Chat do servidor ${currentRoomId}` : "Chat Global"}</h2>
+    <p class="note">${currentRoomId ? "Só quem está nesse servidor privado vê essa conversa." : "Todo jogador com o jogo aberto agora pode ver essa conversa."}</p>
     <div id="chatMessages" style="max-height:220px;overflow-y:auto;background:#111;padding:8px;margin-bottom:8px;font-size:12px;"></div>
     <div style="display:flex;gap:6px;">
       <input id="chatInput" type="text" maxlength="120" placeholder="Digite sua mensagem..."
@@ -2182,10 +2261,11 @@ function openChat() {
   if (input) input.addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
 }
 function attachChatListener() {
-  if (!fbDb || chatListenerAttached) return;
-  chatListenerAttached = true;
+  if (!fbDb) return;
   try {
-    fbDb.ref("chat/global").orderByKey().limitToLast(30).on("value", (snap) => {
+    if (chatListenerRef) chatListenerRef.off();
+    chatListenerRef = fbDb.ref(chatPath()).orderByKey().limitToLast(30);
+    chatListenerRef.on("value", (snap) => {
       const el = document.getElementById("chatMessages");
       if (!el) return; // chat fechado no momento, ignora
       const data = snap.val() || {};
@@ -2200,7 +2280,7 @@ function sendChat() {
   const input = document.getElementById("chatInput");
   const text = ((input && input.value) || "").trim().slice(0, 120);
   if (!text || !fbDb || !myPlayerName) return;
-  fbDb.ref("chat/global").push({ name: myPlayerName, text, ts: Date.now() })
+  fbDb.ref(chatPath()).push({ name: myPlayerName, text, ts: Date.now() })
     .catch(err => { console.error("Erro ao enviar mensagem:", err); toast("Erro ao enviar mensagem."); });
   input.value = "";
 }
@@ -2221,14 +2301,16 @@ function renderFriendList() {
     const rows = [];
     for (const n of names) {
       try {
-        const s = await fbDb.ref("players/" + n).once("value");
+        const s = await fbDb.ref("directory/" + n).once("value");
         const online = s.exists() && (Date.now() - (s.val().ts || 0)) < 15000;
-        rows.push(`<div>${n} — ${online ? "🟢 online" : "🔴 offline"}</div>`);
+        const inviteBtn = currentRoomId ? ` <button data-action="inviteToRoom" data-arg="${n}">Convidar pro servidor</button>` : "";
+        rows.push(`<div class="item">${n} — ${online ? "🟢 online" : "🔴 offline"}${inviteBtn}</div>`);
       } catch (err) { rows.push(`<div>${n} — ❓</div>`); }
     }
     el.innerHTML = rows.join("") || "Nenhum amigo adicionado ainda.";
   }).catch(err => console.error("Erro ao carregar amigos:", err));
 }
+
 
 /* ================= START ================= */
 handleResize();
