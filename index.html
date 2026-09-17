@@ -142,6 +142,7 @@
     <div id="mainMenuTitle">🌲 Pine Valley</div>
     <button id="btnPlaySolo" class="menuBtn">🎮 Jogar Sozinho</button>
     <button id="btnPlayFriends" class="menuBtn">👥 Jogar com Amigos</button>
+    <button id="btnPlayRooms" class="menuBtn">🔒 Servidores Privados</button>
   </div>
   <div id="hud">
     <div>🕐 <span id="hudTime">06:00</span> · Dia <span id="hudDay">1</span> · 💰 R$<span id="hudMoney">0</span> · <span id="hudJob" style="color:#ffd166">Atendente</span></div>
@@ -1505,7 +1506,7 @@ function toast(msg, ms=2600) {
 /* ================= MODAL ================= */
 const overlay = document.getElementById("modalOverlay");
 const box = document.getElementById("modalBox");
-let inPreGameFlow = false;
+let inPreGameFlow = false, preGameTarget = null;
 function closeModal() {
   modalOpen = false; overlay.style.display = "none";
   if (inPreGameFlow) { inPreGameFlow = false; document.getElementById("mainMenu").style.display = "flex"; }
@@ -1540,6 +1541,10 @@ function handleUIAction(action, arg) {
     case "joinRoomPrompt": joinRoomPrompt(); break;
     case "leaveRoom": leaveRoom(); break;
     case "inviteToRoom": inviteToRoom(arg); break;
+    case "openRoomsPanel": openRoomsPanel(); break;
+    case "acceptRoomInvite": acceptRoomInvite(arg); break;
+    case "declineRoomInvite": declineRoomInvite(arg); break;
+    case "joinMyRoom": joinMyRoom(arg); break;
   }
 }
 
@@ -2068,7 +2073,7 @@ function confirmPlayerName() {
   try { localStorage.setItem("pineValleyName", name); } catch (err) { /* sem suporte a localStorage, sem problema */ }
   registerPresence();
   toast(`Bem-vindo, ${name}!`);
-  if (inPreGameFlow) openFriendSearch();
+  if (inPreGameFlow) { preGameTarget === "rooms" ? openRoomsPanel() : openFriendSearch(); }
   else closeModal();
 }
 function registerPresence() {
@@ -2132,15 +2137,6 @@ function removeRemotePlayer(name) {
 }
 
 function openFriendSearch() {
-  const roomSection = currentRoomId
-    ? `<p>🔒 Você está no servidor privado <b>${currentRoomId}</b></p><button data-action="leaveRoom">Sair do servidor</button>`
-    : `<p class="note">Você está no modo global (todos os jogadores podem se ver).</p>
-       <button data-action="createRoom">➕ Criar servidor privado</button>
-       <div style="display:flex;gap:6px;margin-top:6px;">
-         <input id="roomCodeInput" maxlength="5" placeholder="Código do servidor"
-           style="flex:1;padding:8px;font-family:inherit;font-size:13px;background:#111;color:#fff;border:1px solid #555;text-transform:uppercase;" />
-         <button data-action="joinRoomPrompt">Entrar</button>
-       </div>`;
   openModal(`
     <h2>👥 Amigos</h2>
     ${inPreGameFlow ? `<button data-action="enterGameWithFriends">▶️ Entrar no jogo</button><hr style="border-color:#3a3a55;margin:10px 0;">` : ""}
@@ -2150,8 +2146,7 @@ function openFriendSearch() {
     <div style="margin-top:14px;"><b>Seus amigos:</b></div>
     <div id="friendListArea" class="note">Carregando...</div>
     <hr style="border-color:#3a3a55;margin:12px 0;">
-    <div style="margin-bottom:6px;"><b>🔒 Servidor Privado</b></div>
-    ${roomSection}
+    <button data-action="openRoomsPanel">🔒 Servidores Privados${currentRoomId ? ` (em: ${currentRoomId})` : ""}</button>
   `);
   renderFriendList();
   const input = document.getElementById("friendSearchInput");
@@ -2198,12 +2193,13 @@ function createRoom() {
   if (!fbDb || !myPlayerName) { toast("Escolha seu nome primeiro."); return; }
   const code = generateRoomCode();
   fbDb.ref(`rooms/${code}`).set({ owner: myPlayerName, createdAt: Date.now(), members: { [myPlayerName]: true } })
+    .then(() => fbDb.ref(`userRooms/${myPlayerName}/${code}`).set(true))
     .then(() => {
       currentRoomId = code;
       registerPresence();
       chatListenerRef = null;
       toast(`Servidor criado! Código: ${code}`);
-      openFriendSearch();
+      openRoomsPanel();
     })
     .catch(err => { console.error(err); toast("Erro ao criar servidor."); });
 }
@@ -2214,12 +2210,15 @@ function joinRoomPrompt() {
   if (!fbDb || !myPlayerName) { toast("Escolha seu nome primeiro."); return; }
   fbDb.ref(`rooms/${code}/members/${myPlayerName}`).once("value").then(snap => {
     if (!snap.exists() || snap.val() !== true) { toast("Você não foi convidado pra esse servidor."); return; }
-    currentRoomId = code;
-    registerPresence();
-    chatListenerRef = null;
-    toast(`Entrou no servidor ${code}!`);
-    openFriendSearch();
+    joinMyRoom(code);
   }).catch(err => { console.error(err); toast("Erro ao entrar no servidor."); });
+}
+function joinMyRoom(code) {
+  currentRoomId = code;
+  registerPresence();
+  chatListenerRef = null;
+  toast(`Entrou no servidor ${code}!`);
+  openRoomsPanel();
 }
 function leaveRoom() {
   if (presenceRef) { try { presenceRef.onDisconnect().cancel(); presenceRef.remove(); } catch (err) {} }
@@ -2227,17 +2226,81 @@ function leaveRoom() {
   registerPresence();
   chatListenerRef = null;
   toast("Voltou pro modo global.");
-  openFriendSearch();
+  openRoomsPanel();
 }
 function inviteToRoom(name) {
-  if (!fbDb || !currentRoomId) return;
-  fbDb.ref(`rooms/${currentRoomId}/members/${name}`).set(true)
-    .then(() => toast(`${name} convidado pro servidor!`))
+  if (!fbDb || !currentRoomId || !myPlayerName) return;
+  fbDb.ref(`roomInvites/${name}/${currentRoomId}`).set({ from: myPlayerName, ts: Date.now() })
+    .then(() => toast(`Convite enviado pra ${name}!`))
     .catch(err => { console.error(err); toast("Erro ao convidar."); });
 }
-
-/* ---------- CHAT (global ou de servidor privado) ---------- */
-let chatListenerRef = null;
+function acceptRoomInvite(roomId) {
+  if (!fbDb || !myPlayerName) return;
+  fbDb.ref(`rooms/${roomId}/members/${myPlayerName}`).set(true)
+    .then(() => fbDb.ref(`userRooms/${myPlayerName}/${roomId}`).set(true))
+    .then(() => fbDb.ref(`roomInvites/${myPlayerName}/${roomId}`).remove())
+    .then(() => { toast("Convite aceito! O servidor já está na sua lista."); openRoomsPanel(); })
+    .catch(err => { console.error(err); toast("Erro ao aceitar convite."); });
+}
+function declineRoomInvite(roomId) {
+  if (!fbDb || !myPlayerName) return;
+  fbDb.ref(`roomInvites/${myPlayerName}/${roomId}`).remove()
+    .then(() => openRoomsPanel())
+    .catch(err => console.error(err));
+}
+function openRoomsPanel() {
+  if (!myPlayerName) { toast("Escolha seu nome de jogador primeiro!"); askPlayerName(); return; }
+  openModal(`
+    <h2>🔒 Servidores Privados</h2>
+    ${inPreGameFlow ? `<button data-action="enterGameWithFriends">▶️ Entrar no jogo</button><hr style="border-color:#3a3a55;margin:10px 0;">` : ""}
+    ${currentRoomId
+      ? `<p>Você está no servidor <b>${currentRoomId}</b> agora.</p><button data-action="leaveRoom">Sair do servidor</button><hr style="border-color:#3a3a55;margin:10px 0;">`
+      : `<p class="note">Você está no modo global.</p><hr style="border-color:#3a3a55;margin:10px 0;">`}
+    <div><b>📩 Convites pendentes</b></div>
+    <div id="roomInvitesArea" class="note">Carregando...</div>
+    <hr style="border-color:#3a3a55;margin:10px 0;">
+    <div><b>📂 Meus servidores</b></div>
+    <div id="myRoomsArea" class="note">Carregando...</div>
+    <hr style="border-color:#3a3a55;margin:10px 0;">
+    <button data-action="createRoom">➕ Criar novo servidor</button>
+    <div style="display:flex;gap:6px;margin-top:6px;">
+      <input id="roomCodeInput" maxlength="5" placeholder="Entrar com código"
+        style="flex:1;padding:8px;font-family:inherit;font-size:13px;background:#111;color:#fff;border:1px solid #555;text-transform:uppercase;" />
+      <button data-action="joinRoomPrompt">Entrar</button>
+    </div>
+  `);
+  renderRoomInvites();
+  renderMyRooms();
+}
+function renderRoomInvites() {
+  if (!fbDb || !myPlayerName) return;
+  fbDb.ref(`roomInvites/${myPlayerName}`).once("value").then(snap => {
+    const el = document.getElementById("roomInvitesArea");
+    if (!el) return;
+    if (!snap.exists()) { el.innerHTML = "Nenhum convite pendente."; return; }
+    const data = snap.val();
+    el.innerHTML = Object.keys(data).map(roomId => `
+      <div class="item">Convite de <b>${escapeHtml(data[roomId].from)}</b> pro servidor <b>${roomId}</b>
+        <div>
+          <button data-action="acceptRoomInvite" data-arg="${roomId}">✅ Aceitar</button>
+          <button data-action="declineRoomInvite" data-arg="${roomId}">❌ Recusar</button>
+        </div>
+      </div>`).join("");
+  }).catch(err => console.error("Erro ao carregar convites:", err));
+}
+function renderMyRooms() {
+  if (!fbDb || !myPlayerName) return;
+  fbDb.ref(`userRooms/${myPlayerName}`).once("value").then(snap => {
+    const el = document.getElementById("myRoomsArea");
+    if (!el) return;
+    if (!snap.exists()) { el.innerHTML = "Você ainda não faz parte de nenhum servidor."; return; }
+    const roomIds = Object.keys(snap.val());
+    el.innerHTML = roomIds.map(roomId => `
+      <div class="item">🔒 ${roomId}
+        <div>${roomId === currentRoomId ? "<span class=\"note\">você está aqui</span>" : `<button data-action="joinMyRoom" data-arg="${roomId}">Entrar</button>`}</div>
+      </div>`).join("");
+  }).catch(err => console.error("Erro ao carregar servidores:", err));
+}
 function escapeHtml(str) {
   const div = document.createElement("div");
   div.textContent = str;
@@ -2330,9 +2393,14 @@ document.getElementById("btnPlaySolo").addEventListener("click", () => {
   startIntro();
 });
 document.getElementById("btnPlayFriends").addEventListener("click", () => {
-  inPreGameFlow = true;
+  inPreGameFlow = true; preGameTarget = "friends";
   document.getElementById("mainMenu").style.display = "none";
   if (myPlayerName) { openFriendSearch(); } else { askPlayerName(); }
+});
+document.getElementById("btnPlayRooms").addEventListener("click", () => {
+  inPreGameFlow = true; preGameTarget = "rooms";
+  document.getElementById("mainMenu").style.display = "none";
+  if (myPlayerName) { openRoomsPanel(); } else { askPlayerName(); }
 });
 </script>
 </body>
