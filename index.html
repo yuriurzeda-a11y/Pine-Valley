@@ -272,20 +272,22 @@ const EMPLOYEE_SCENARIOS = {
 /* ---------- gerador processual de falas ("IA de mentirinha", sem custo/limite) ---------- */
 function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
-const PED_GREETINGS = ["Oi!", "Bom dia!", "Boa tarde!", "E aí!", "Olá!", "Fala!", "Opa!"];
+const PED_GREETINGS = ["Oi!", "Bom dia!", "Boa tarde!", "E aí!", "Olá!", "Fala!", "Opa!", "Salve!"];
 const PED_COMMENTS = [
-  "lindo dia em Pine Valley, não acha?",
-  "você não é daqui, é?",
-  "com licença, preciso ir trabalhar.",
-  "o clima tá ótimo hoje.",
-  "preciso ir andando, tchau!",
-  "já foi na lanchonete nova? dizem que é boa.",
-  "cuidado com os carros nessa rua!",
-  "você trabalha em qual lugar mesmo?",
-  "essa cidade tá crescendo rápido, hein.",
-  "vi um carro novo passando ali, reparou?",
-  "os prédios novos ficaram bonitos.",
-  "tô com pressa, mas foi bom te ver!",
+  "lindo dia em Pine Valley, não acha? tá formando muita aura hoje.",
+  "você não é daqui, é? já tá com rizz de morador.",
+  "com licença, preciso ir trabalhar, mas foi sigma te ver.",
+  "o clima tá ótimo hoje, zero cringe.",
+  "preciso ir andando, tchau! aura em alta!",
+  "já foi na lanchonete nova? o hambúrguer de lá é muito sigma.",
+  "cuidado com os carros nessa rua, não vira meme por atropelamento.",
+  "você trabalha em qual lugar mesmo? parece ser bem sigma.",
+  "essa cidade tá crescendo rápido, tá pura aura urbana.",
+  "vi um carro novo passando ali, aquilo sim é rizz automotivo.",
+  "os prédios novos ficaram bonitos, muita aura arquitetônica.",
+  "tô com pressa, mas foi bom te ver, aura recarregada!",
+  "hoje eu acordei sigma, nem sei explicar.",
+  "vi um cara ali que é muito beta, cuidado com ele.",
 ];
 function generatePedestrianLine() {
   return `${pick(PED_GREETINGS)} ${pick(PED_COMMENTS)}`;
@@ -293,16 +295,38 @@ function generatePedestrianLine() {
 
 const CUSTOMER_REACTIONS = {
   praise: {
-    openers: ["Aí sim,", "Nossa,", "Cara,", "Uau,", "Show,", "Mano,"],
-    bodies: ["ficou show esse lanche!", "mandou muito bem!", "ficou perfeito!", "melhor lanche que já comi aqui!", "voltarei sempre!", "ficou top demais!", "com certeza volto amanhã!"],
+    openers: ["Aí sim,", "Nossa,", "Cara,", "Uau,", "Show,", "Mano,", "Bora,"],
+    bodies: [
+      "formou muita aura com esse lanche!",
+      "isso foi muito sigma da sua parte!",
+      "mandou muito bem, isso sim é rizz na cozinha!",
+      "ficou perfeito, zero cringe nesse lanche!",
+      "melhor lanche que já comi aqui, aura máxima!",
+      "voltarei sempre, isso é conteúdo de qualidade!",
+      "ficou top demais, virou meme de tão bom!",
+      "com certeza volto amanhã, isso é lendário!",
+    ],
   },
   meh: {
     openers: ["Hmm,", "Bom,", "Tá,", "Bem,"],
-    bodies: ["podia ser bem melhor...", "faltou algo, acho...", "não ficou como eu esperava...", "deu pra comer, mas não empolgou...", "tá ok, mas não é bem isso não."],
+    bodies: [
+      "ficou meio beta isso aqui...",
+      "faltou uma aurazinha no preparo...",
+      "deu pra ir, mas sem hype nenhum...",
+      "tá ok, mas não é lendário não...",
+      "não ficou como eu esperava, meio sem graça...",
+    ],
   },
   angry: {
-    openers: ["Cara,", "Sério?", "Ei,", "Que isso,", "Poxa,"],
-    bodies: ["não foi isso que eu pedi!", "errou tudo o meu pedido!", "vou falar com o gerente sobre isso!", "isso não tem nada a ver com o que eu pedi!", "nem perto do que eu pedi!"],
+    openers: ["Cara,", "Sério?", "Ei,", "Que isso,", "Poxa,", "Mano,"],
+    bodies: [
+      "isso foi muito beta, sinceramente!",
+      "zerou minha aura com esse erro!",
+      "que cringe esse pedido errado!",
+      "isso não tem rizz nenhum!",
+      "vou falar com o gerente, isso foi sem noção!",
+      "nem perto do que eu pedi, aura negativa!",
+    ],
   },
 };
 function generateCustomerLine(kind) {
